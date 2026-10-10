@@ -16,6 +16,9 @@ func (c *Controller) visualHeight(height int) int {
 	if config.Get().MusicVisualizer == "off" || height < 20 {
 		return 0
 	}
+	if config.Get().MusicVisualizer == "waveform" {
+		return max(2, min(8, (height-16)/3))
+	}
 	return max(2, min(6, (height-16)/4))
 }
 
@@ -32,6 +35,9 @@ func (c *Controller) playerHeight(height int) int {
 func (c *Controller) refreshPlayer() tea.Cmd {
 	previous := c.playerStatus
 	c.playerStatus = c.player.Status()
+	if c.focus == panePlayer && !c.playerStatus.Active() {
+		c.focusPane(paneContent)
+	}
 	if previous.Key != c.playerStatus.Key {
 		c.visualizer = visualizer.Model{}
 	}
@@ -39,6 +45,7 @@ func (c *Controller) refreshPlayer() tea.Cmd {
 	elapsed := now.Sub(c.visualTick)
 	c.visualTick = now
 	c.visualizer.Step(c.playerStatus.Spectrum, c.playerStatus.Paused(), elapsed)
+	c.visualizer.StepWaveform(c.playerStatus.Waveform, c.playerStatus.Paused(), elapsed)
 	if previous.Active() != c.playerStatus.Active() || previous.AudioOnly != c.playerStatus.AudioOnly {
 		return resizePlayer()
 	}
@@ -70,9 +77,11 @@ func (c *Controller) musicControl(key string) tea.Cmd {
 			case "mirror":
 				cfg.MusicVisualizer = "off"
 			case "off":
-				cfg.MusicVisualizer = "spectrum"
-			default:
+				cfg.MusicVisualizer = "waveform"
+			case "spectrum":
 				cfg.MusicVisualizer = "mirror"
+			default:
+				cfg.MusicVisualizer = "spectrum"
 			}
 			_ = cfg.Save()
 			return resizePlayer()
@@ -95,7 +104,6 @@ func (c *Controller) musicControls() string {
 func (c *Controller) renderMusicPlayer() string {
 	layout := ui.GetLayout()
 	width := max(1, layout.InnerWidth())
-	accent := ui.Accent(c.theme)
 	state := "PLAYING"
 	if c.playerStatus.Paused() {
 		state = "PAUSED"
@@ -107,13 +115,13 @@ func (c *Controller) renderMusicPlayer() string {
 	lines := []string{ui.Ellipsis(title, width)}
 	if height := c.visualHeight(layout.TotalHeight()); height > 0 {
 		mode := config.Get().MusicVisualizer
-		if mode != "mirror" {
-			mode = "spectrum"
+		if mode != "mirror" && mode != "spectrum" {
+			mode = "waveform"
 		}
 		lines = append(lines, c.visualizer.View(width, height, mode))
 	}
 	lines = append(lines, c.musicProgress(width), ui.Ellipsis(c.musicControls(), width))
-	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(accent).
+	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(c.paneBorder(panePlayer)).
 		Padding(0, 1).Width(width + 2).Render(strings.Join(lines, "\n"))
 }
 

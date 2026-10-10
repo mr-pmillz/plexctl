@@ -82,12 +82,17 @@ options; scroll with the wheel; right click to go back. During terminal video,
 click to pause, scroll to seek, and right click to return. **V** switches library
 list/poster views.
 
+**Ctrl+H/J/K/L** moves focus left/down/up/right between the sidebar, library,
+and active player. The focused pane has a highlighted border. In the sidebar,
+use **j/k** or the arrows to select a library, then **Enter** to open it.
+**L** opens library settings; **Ctrl+S** opens global settings.
+
 Movie and TV cover posters automatically use high-resolution images in Kitty
 0.28+ (also through tmux), with text posters as a fallback in other terminals.
 See the [TUI guide](docs/content/tui.mdx) for configuration and playback details.
 
 Music libraries support artist → album → track navigation. Press **p** to play
-the selected song in the TUI, with a live spectrum visualizer and no extra
+the selected song in the TUI, with a live stereo waveform and no extra
 window. **v** chooses terminal audio or a separate window; **Ctrl+S → Music
 Player** saves the default. Album covers appear in the artist gallery and beside
 the track list. Scrolling automatically loads more artists. Playing an artist or
@@ -99,8 +104,9 @@ automatically. **Home / End** reach the first/last item; **Page Up / Page Down**
 move by a page. The library footer shows how many items have loaded.
 
 Use **Space** to pause, **[ / ]** to seek, **+ / -** for volume, **m** to mute,
-**z** to cycle spectrum/mirror/off, and **x** to stop. The visualizer measures
-the playing audio and uses ordinary terminal cells, including through tmux and
+**z** to cycle waveform/spectrum/mirror/off, and **x** to stop. The default
+waveform draws the playing audio with cyan/violet traces and fading trails.
+It uses ordinary terminal cells, including through tmux and
 SSH. **/** searches Plex for artists, albums, and track names without requiring
 a local index first.
 

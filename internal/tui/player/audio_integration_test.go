@@ -92,9 +92,25 @@ func TestAudioPlaybackAndSpectrum(t *testing.T) {
 	if msg := pm.Play(media, "Audio QA", "qa", true, config.AudioTerminal, 0, nil)(); msg != nil {
 		t.Fatalf("play: %v", msg)
 	}
-	status := waitAudio(t, pm, "audio starts", func(s PlayerStatus) bool { return s.Time > 0.2 && s.Spectrum.Valid })
+	status := waitAudio(t, pm, "audio and waveform start", func(s PlayerStatus) bool {
+		return s.Time > 0.2 && s.Spectrum.Valid && s.Waveform.Valid
+	})
 	if !status.AudioOnly || status.Spectrum.Left <= status.Spectrum.Right+5 {
 		t.Fatal("stereo levels did not preserve the source's 6 dB channel difference")
+	}
+	wavePeak := func(samples [WaveformSamples]float64) float64 {
+		peak := 0.0
+		for _, value := range samples {
+			peak = max(peak, math.Abs(value))
+		}
+		return peak
+	}
+	left, right := wavePeak(status.Waveform.Left), wavePeak(status.Waveform.Right)
+	if left < .1 || right < .05 || left < right*1.2 {
+		t.Fatalf("waveform did not reflect stereo amplitudes: left %.3f, right %.3f", left, right)
+	}
+	if status.Waveform.Left == status.Waveform.Right {
+		t.Fatal("independent stereo waveforms were lost")
 	}
 	peak := func(s PlayerStatus) int {
 		band := 0
@@ -110,16 +126,18 @@ func TestAudioPlaybackAndSpectrum(t *testing.T) {
 	}
 	pm.ioMu.Lock()
 	var window, video bool
+	var vo string
 	_ = pm.conn.get("force-window", &window)
 	_ = pm.conn.get("vo-configured", &video)
+	_ = pm.conn.get("current-vo", &vo)
 	pm.ioMu.Unlock()
-	if window || video {
+	if window || video && vo != "null" {
 		t.Fatal("terminal music enabled a video window")
 	}
 	pm.TogglePause()()
 	paused := waitAudio(t, pm, "pause", func(s PlayerStatus) bool { return s.Paused() })
 	time.Sleep(150 * time.Millisecond)
-	if math.Abs(pm.Status().Time-paused.Time) > 0.01 {
+	if math.Abs(pm.Status().Time-paused.Time) > 0.01 || pm.Status().Waveform.Serial != paused.Waveform.Serial {
 		t.Fatal("paused playback kept advancing")
 	}
 	pm.Volume(-10)()
@@ -129,16 +147,33 @@ func TestAudioPlaybackAndSpectrum(t *testing.T) {
 	pm.SeekPercent(50)()
 	pm.TogglePause()()
 	waitAudio(t, pm, "seek updates frequencies", func(s PlayerStatus) bool {
-		return s.Time >= 3 && s.Spectrum.Valid && peak(s) == 10
+		return s.Time >= 3 && s.Spectrum.Valid && peak(s) == 10 &&
+			s.Waveform.Valid && s.Waveform.Serial > status.Waveform.Serial &&
+			s.Waveform.Left != status.Waveform.Left
 	})
 	pm.SeekPercent(85)()
 	waitAudio(t, pm, "silence", func(s PlayerStatus) bool {
-		return s.Time >= 5 && s.Spectrum.Valid && s.Spectrum.Left < -90
+		return s.Time >= 5 && s.Spectrum.Valid && s.Spectrum.Left < -90 &&
+			s.Waveform.Valid && wavePeak(s.Waveform.Left) < .04 && wavePeak(s.Waveform.Right) < .04
+	})
+	// Reload on the same mpv connection: per-file graphs and script hooks must
+	// reset, even after seeking into silence on the previous track.
+	if msg := pm.Play(media, "Next track", "qa-next", true, config.AudioTerminal, 0, nil)(); msg != nil {
+		t.Fatalf("next track: %v", msg)
+	}
+	waitAudio(t, pm, "next track waveform", func(s PlayerStatus) bool {
+		return s.Key == "qa-next" && s.Time > .2 && s.Time < 2 &&
+			s.Waveform.Valid && wavePeak(s.Waveform.Left) > .1
 	})
 	pm.StopPlayback()()
 	stopped := pm.Status()
-	if stopped.Active() || stopped.Spectrum.Valid {
+	if stopped.Active() || stopped.Spectrum.Valid || stopped.Waveform.Valid {
 		t.Fatal("stop left audio or visualization active")
+	}
+	scriptDir := pm.waveformDir
+	pm.Close()
+	if _, err := os.Stat(scriptDir); !os.IsNotExist(err) {
+		t.Fatal("waveform script directory was not cleaned up")
 	}
 }
 

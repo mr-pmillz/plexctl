@@ -26,6 +26,8 @@ type NavSection struct {
 type Navbar struct {
 	sections      []NavSection
 	activeFlatIdx int
+	cursor        int
+	focused       bool
 	theme         tint.Tint
 	Width         int
 	Height        int
@@ -64,6 +66,26 @@ func NewNavbar(sections []NavSection, theme tint.Tint) *Navbar {
 
 func (n *Navbar) SetActive(index int) {
 	n.activeFlatIdx = index
+	n.cursor = index
+	n.followActive = true
+}
+
+func (n *Navbar) SetFocused(focused bool) {
+	if focused && !n.focused {
+		n.cursor = n.activeFlatIdx
+		n.followActive = true
+	}
+	n.focused = focused
+}
+
+func (n *Navbar) Cursor() int { return n.cursor }
+
+func (n *Navbar) MoveCursor(delta int) {
+	count := 0
+	for _, section := range n.sections {
+		count += len(section.Items)
+	}
+	n.cursor = max(0, min(count-1, n.cursor+delta))
 	n.followActive = true
 }
 
@@ -133,6 +155,7 @@ func (n *Navbar) View() string {
 
 		Border(lipgloss.Border{Left: "┃"}, false, false, false, true).
 		BorderForeground(accent)
+	cursorStyle := activeStyle.Foreground(n.theme.Black()).Background(accent)
 
 	sectionHeaderStyle := lipgloss.NewStyle().
 		Foreground(n.theme.BrightBlack()).
@@ -149,7 +172,9 @@ func (n *Navbar) View() string {
 			content := ui.Ellipsis(n.formatItem(item), max(1, n.Width-5))
 			y := lipgloss.Height(lipgloss.JoinVertical(lipgloss.Left, renderedLines...))
 			n.itemRows = append(n.itemRows, ui.Rect{Y: y, Width: n.Width, Height: 1})
-			if flatIdx == n.activeFlatIdx {
+			if n.focused && flatIdx == n.cursor {
+				renderedLines = append(renderedLines, cursorStyle.Render(content))
+			} else if flatIdx == n.activeFlatIdx {
 				renderedLines = append(renderedLines, activeStyle.Render(content))
 			} else {
 				renderedLines = append(renderedLines, baseStyle.Render(content))
@@ -159,13 +184,17 @@ func (n *Navbar) View() string {
 	}
 
 	lines := strings.Split(lipgloss.JoinVertical(lipgloss.Left, renderedLines...), "\n")
-	n.actionRows = []string{"", " [/] Search", " [ctrl+s] Settings", " [ctrl+l] Libraries", " [u] Switch user"}
+	n.actionRows = []string{"", " [/] Search", " [ctrl+s] Settings", " [L] Libraries", " [u] Switch user"}
 	if n.Height < 12 {
 		n.actionRows = nil
 	}
 	n.actionTop = max(1, n.Height-len(n.actionRows))
-	if n.followActive && n.activeFlatIdx >= 0 && n.activeFlatIdx < len(n.itemRows) {
-		y := n.itemRows[n.activeFlatIdx].Y
+	followIdx := n.activeFlatIdx
+	if n.focused {
+		followIdx = n.cursor
+	}
+	if n.followActive && followIdx >= 0 && followIdx < len(n.itemRows) {
+		y := n.itemRows[followIdx].Y
 		if y < n.offset {
 			n.offset = y
 		} else if y >= n.offset+n.actionTop {
@@ -183,13 +212,17 @@ func (n *Navbar) View() string {
 	}
 	visible = append(visible, n.actionRows...)
 	sidebarContent := strings.Join(visible, "\n")
+	border := n.theme.BrightBlack()
+	if n.focused {
+		border = accent
+	}
 
 	// Container style with right border and fixed height
 	return lipgloss.NewStyle().
 		Width(n.Width).
 		Height(n.Height).
 		Border(lipgloss.NormalBorder(), false, true, false, false).
-		BorderForeground(n.theme.BrightBlack()).
+		BorderForeground(border).
 		Render(sidebarContent)
 }
 

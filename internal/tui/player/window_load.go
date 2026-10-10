@@ -52,6 +52,7 @@ func mediaLoadCommand(url string, startOffset int64, audioOnly bool) map[string]
 	if audioOnly {
 		options["vid"] = "no"
 		options["force-window"] = "no"
+		options["vo"] = "null"
 	}
 	return map[string]any{"name": "loadfile", "url": url, "flags": "replace", "options": options}
 }

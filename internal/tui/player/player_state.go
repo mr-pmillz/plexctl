@@ -14,6 +14,7 @@ type PlayerStatus struct {
 	Volume    float64
 	Muted     bool
 	Spectrum  Spectrum
+	Waveform  Waveform
 }
 
 type ExternalSubtitle struct {

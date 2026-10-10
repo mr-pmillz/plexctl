@@ -154,7 +154,7 @@ func Get() *Config {
 			DefaultViewMode: ViewModePoster,
 			TerminalVideo:   VideoAuto,
 			MusicPlayer:     "terminal",
-			MusicVisualizer: "spectrum",
+			MusicVisualizer: "waveform",
 		}
 	})
 	return instance

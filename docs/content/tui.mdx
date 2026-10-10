@@ -36,12 +36,24 @@ mpv's Space, Right/Left, and q bindings, including any custom bindings you set.
 - **`v`**: Choose a player: terminal/window for music; Automatic, Kitty, Sixel, or Text for video.
 - **`ctrl+p`**: Play music in the TUI or stream video with the saved terminal renderer.
 - **`/`**: Open global fuzzy search.
-- **`ctrl+l`**: Open library configuration (show/hide/icon picker).
+- **`Ctrl+H/J/K/L`**: Focus the pane to the left/down/up/right.
+- **`L`**: Open library configuration (show/hide/icon picker).
 - **`ctrl+s`**: Open global settings (theme/icon type).
 - **`r`**: Refresh current view / trigger reindex (on search page).
 - **`x`**: Stop current playback.
 - **`h`**: Jump directly to Home tab.
 - **`?`**: Show help overlay.
+
+**Ctrl+H** reaches the left navigation; **Ctrl+L** returns to the library.
+Use **j/k** or **Up/Down** in the sidebar, then **Enter** (or **l/Right**) to open
+the selected entry. The sidebar scrolls to keep the selection visible. Holding
+a pane shortcut stops at the edge instead of cycling through panes.
+
+While playing, **Ctrl+J** moves from the library to the player below, and
+**Ctrl+K** moves back up. In the player, **h/l** or **Left/Right** seek,
+**j/k** or **Down/Up** adjust volume, and **Enter** pauses/resumes. **Esc**
+returns focus to the library. A highlighted border and the footer identify the
+focused pane; clicking a pane focuses it too. Dialogs retain their own input.
 
 ## Features
 
@@ -57,7 +69,7 @@ Rebuild an existing index from Search → Status → `r`, or run
 `plexctl search reindex`, to make these available to `plexctl search find`.
 
 ### Library Configuration
-Pressing `ctrl+l` opens the configuration manager. Here you can:
+Pressing `L` opens the configuration manager. Here you can:
 - **Hide/Show** specific library sections.
 - **Assign Custom Icons** using Emojis, Nerd Fonts, or ASCII.
 - **Reorder** how libraries appear in your sidebar.
@@ -93,13 +105,17 @@ while listening. Press **`v`** to choose **In this terminal** or **Separate play
 window**. **Ctrl+P** always chooses terminal music; **Ctrl+S → Music Player** saves
 the default (`music_player: terminal` or `window` in the configuration).
 
-The music player includes a 16-band audio spectrum with a color gradient, smooth
-attack and release, falling peaks, and stereo level meters. These are measured
-from the audio being decoded by mpv. Pause and silence settle the display; seeking
-updates the spectrum to the new audio position. It uses ordinary Unicode cells
-and terminal colors, so it also works in tmux and over SSH without Kitty/Sixel,
-desktop audio capture, or an extra visualizer program. Audio plays on the host
-running mpv. The analysis uses stereo output; mpv downmixes multichannel music.
+The default visualizer is a live **stereo waveform**: cyan/azure and violet/rose
+traces with fading trails and stereo meters. The trace comes from the same mpv
+decoder playing the track, using an offscreen FFmpeg `showwaves` frame. Quiet
+signals get a square-root amplitude scale to keep their detail visible. Pause
+and silence settle the display; seeking follows the new audio position.
+
+Press **z** to switch to the 16-band spectrum with falling peaks, its mirrored
+style, compact controls, or back to the waveform. All styles use ordinary
+Unicode cells and terminal colors, including in tmux and over SSH, without
+Kitty/Sixel, desktop audio capture, or an extra player window. Audio plays on
+the host running mpv. The analysis uses stereo output; mpv downmixes multichannel music.
 
 | Control | Action |
 | --- | --- |
@@ -109,13 +125,14 @@ running mpv. The analysis uses stereo output; mpv downmixes multichannel music.
 | Wheel over the player | Seek |
 | `+` / `-`, or Shift+wheel over the player | Adjust volume |
 | `m` | Mute/unmute |
-| `z` | Cycle spectrum, mirror, and compact controls |
+| `z` | Cycle waveform (default), spectrum, mirror, and compact controls |
 | `x` | Stop |
 
 The visualizer shrinks with the terminal and can be disabled under **Ctrl+S →
-Music Visualizer** (`music_visualizer: spectrum`, `mirror`, or `off`). It requires
-mpv's FFmpeg/lavfi audio filters; music playback remains available in builds
-without those filters. Terminal music stops when you quit the TUI.
+Music Visualizer** (`music_visualizer: waveform`, `spectrum`, `mirror`, or `off`).
+The waveform requires mpv with Lua and FFmpeg/lavfi (`showwaves`); the spectrum
+requires its lavfi audio filters. Music playback remains available in minimal
+builds without visualization support. Terminal music stops when you quit the TUI.
 
 When playback is started, a playback bar appears at the bottom showing:
 - Current progress and duration.

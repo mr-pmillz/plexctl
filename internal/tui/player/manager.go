@@ -19,16 +19,17 @@ import (
 type PlayerManager struct {
 	// ioMu serializes commands and lifecycle changes. Rendering only takes
 	// statusMu, so a slow IPC request never blocks the terminal UI.
-	ioMu       sync.Mutex
-	conn       *ipcClient
-	cancel     context.CancelFunc
-	socketPath string
-	statusMu   sync.RWMutex
-	status     PlayerStatus
-	updates    chan tea.Msg
-	done       chan struct{}
-	closeOnce  sync.Once
-	workers    sync.WaitGroup
+	ioMu        sync.Mutex
+	conn        *ipcClient
+	cancel      context.CancelFunc
+	socketPath  string
+	waveformDir string
+	statusMu    sync.RWMutex
+	status      PlayerStatus
+	updates     chan tea.Msg
+	done        chan struct{}
+	closeOnce   sync.Once
+	workers     sync.WaitGroup
 }
 
 var (
@@ -114,6 +115,7 @@ func (pm *PlayerManager) start(
 	if audioOnly {
 		// Minimal builds may lack lavfi. Playback still works without meters.
 		_ = pm.conn.call("af", "add", spectrumFilter())
+		_ = pm.ensureWaveformScript()
 	}
 	if err := pm.conn.command(mediaLoadCommand(url, startOffset, audioOnly), nil); err != nil {
 		return previous, err
@@ -301,6 +303,9 @@ func (pm *PlayerManager) Close() {
 		pm.disconnect()
 		pm.ioMu.Unlock()
 		pm.workers.Wait()
+		if pm.waveformDir != "" {
+			_ = os.RemoveAll(pm.waveformDir)
+		}
 	})
 }
 
@@ -347,10 +352,13 @@ func (pm *PlayerManager) monitor(ctx context.Context, conn *ipcClient, reports c
 					var metadata map[string]string
 					_ = conn.get("af-metadata/plexctl-spectrum", &metadata)
 					status.Spectrum = readSpectrum(metadata)
+					status.Waveform = Waveform{}
+					_ = conn.get("user-data/plexctl-waveform", &status.Waveform)
 				}
 			} else {
 				status.State = operations.StateStopped
 				status.Spectrum = Spectrum{}
+				status.Waveform = Waveform{}
 			}
 			pm.setStatus(status)
 			if err != nil {

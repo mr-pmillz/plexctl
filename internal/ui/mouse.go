@@ -50,7 +50,8 @@ func KeyPress(key string) tea.KeyMsg {
 		"enter": tea.KeyEnter, "esc": tea.KeyEsc, "up": tea.KeyUp, "down": tea.KeyDown,
 		"left": tea.KeyLeft, "right": tea.KeyRight, "tab": tea.KeyTab,
 		"home": tea.KeyHome, "end": tea.KeyEnd, "pgup": tea.KeyPgUp, "pgdown": tea.KeyPgDown,
-		"ctrl+s": tea.KeyCtrlS, "ctrl+l": tea.KeyCtrlL,
+		"ctrl+s": tea.KeyCtrlS, "ctrl+h": tea.KeyCtrlH, "ctrl+j": tea.KeyCtrlJ,
+		"ctrl+k": tea.KeyCtrlK, "ctrl+l": tea.KeyCtrlL, "space": tea.KeySpace,
 		"↑": tea.KeyUp, "↓": tea.KeyDown, "arrows": tea.KeyTab,
 	}
 	if t, ok := types[key]; ok {

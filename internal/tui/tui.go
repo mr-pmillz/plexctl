@@ -45,6 +45,7 @@ type Controller struct {
 	returnTabIdx int
 	visualizer   visualizer.Model
 	visualTick   time.Time
+	focus        paneFocus
 }
 
 type switchUserSuccessMsg struct{}
@@ -246,6 +247,9 @@ func (c *Controller) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		slog.Log(context.Background(), config.LevelTrace, "TUI: key press", "key", msg.String())
+		if cmd, handled := c.paneKey(msg.String()); handled {
+			return c, cmd
+		}
 		switch msg.String() {
 		case "g":
 			if target, ok := c.tabManager.ActiveModel().(ui.LetterJumper); ok && target.CanJumpLetters() {
@@ -258,7 +262,7 @@ func (c *Controller) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return c, tea.Quit
 		case "ctrl+s":
 			return c, c.navigator.Push(settings.NewSettingsOverlayModel(c.theme))
-		case "ctrl+l":
+		case "L":
 			return c, c.navigator.Push(tuiconfig.NewConfigOverlayModel(c.data.Libraries))
 		case "h":
 			return c, c.tabManager.SetActive(0)
@@ -312,6 +316,9 @@ func (c *Controller) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return c, c.triggerUserSwitch()
 		case "shift+tab":
 			return c, c.tabManager.PrevTab()
+		}
+		if c.focus != paneContent {
+			return c, nil
 		}
 	}
 
@@ -516,18 +523,20 @@ func (c *Controller) showHelp() tea.Cmd {
 		{Key: "wheel", Desc: "Scroll under pointer; Shift+wheel browses a poster row"},
 		{Key: "right click", Desc: "Back / close dialog (Shift bypasses mouse capture)"},
 		{Key: "tab", Desc: "Switch Library"},
+		{Key: "ctrl+h / j / k / l", Desc: "Focus pane: left / down / up / right"},
+		{Key: "j / k, enter", Desc: "In navigation: select a library, then open it"},
 		{Key: "g, then A–Z / #", Desc: "Jump to a letter (or click the right-hand alphabet)"},
 		{Key: "Home / End / PgUp / PgDn", Desc: "First / last item / previous / next page"},
 		{Key: "h", Desc: "Home"},
 		{Key: "ctrl+s", Desc: "Global Settings"},
-		{Key: "ctrl+l", Desc: "Libraries"},
+		{Key: "L", Desc: "Libraries"},
 		{Key: "u", Desc: "Switch User"},
 		{Key: "p", Desc: "Play Selected"},
 		{Key: "ctrl+p", Desc: "Play in Terminal"},
 		{Key: "v", Desc: "Choose player (music: terminal / window; video: renderer)"},
 		{Key: "[ / ]", Desc: "Seek backward / forward 10 seconds"},
 		{Key: "+ / - / m", Desc: "Volume up / down / mute"},
-		{Key: "z", Desc: "Cycle music visualizer: spectrum / mirror / off"},
+		{Key: "z", Desc: "Cycle music visualizer: waveform / spectrum / mirror / off"},
 		{Key: "x", Desc: "Stop Playback"},
 		{Key: "q", Desc: "Quit"},
 		{Key: "?", Desc: "Help"},
@@ -560,6 +569,7 @@ func (c *Controller) renderBaseView() string {
 	mainHeight := max(layout.TotalHeight()-1, 0)
 
 	c.tabManager.navbar.Height = mainHeight
+	c.tabManager.navbar.SetFocused(c.focus == paneSidebar)
 	sidebar := c.tabManager.navbar.View()
 
 	// The content box should fill the remaining height
@@ -568,7 +578,7 @@ func (c *Controller) renderBaseView() string {
 
 	windowStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder(), true).
-		BorderForeground(c.theme.BrightBlack()).
+		BorderForeground(c.paneBorder(paneContent)).
 		Padding(0, 1).
 		Width(layout.MainAreaContentWidth() + 2).
 		Height(contentHeight)
@@ -599,9 +609,15 @@ func (c *Controller) renderBaseView() string {
 }
 
 func (c *Controller) footerText() string {
-	text := "[p] Play | [v] Player | [V] View | [/] Search | [?] Help | [q] Quit"
+	text := "Ctrl+HJKL: panes | [p] Play | [v] Player | [V] View | [/] Search | [?] Help | [q] Quit"
 	if c.playerStatus.Active() {
-		text = "[p] Play | [v] Player | [x] Stop | [/] Search | [?] Help | [q] Quit"
+		text = "Ctrl+HJKL: panes | [p] Play | [v] Player | [x] Stop | [/] Search | [?] Help | [q] Quit"
+	}
+	switch c.focus {
+	case paneSidebar:
+		text = "Navigation | j/k: select | [enter] Open | Ctrl+L: content | [L] Libraries | [?] Help"
+	case panePlayer:
+		text = "Player | h/l: seek | j/k: volume | [space] Pause | Ctrl+K: content | [?] Help"
 	}
 	return ui.Ellipsis(text, max(1, ui.GetLayout().TotalWidth()-2))
 }
@@ -615,6 +631,7 @@ func (c *Controller) handleMouse(mouse tea.MouseMsg) (tea.Model, tea.Cmd) {
 		if delta := ui.WheelDelta(mouse); delta != 0 {
 			c.tabManager.navbar.Scroll(delta * 3)
 		} else if ui.LeftClick(mouse) {
+			c.focusPane(paneSidebar)
 			if index := c.tabManager.navbar.ItemAt(mouse); index >= 0 {
 				return c, c.tabManager.SetActive(index)
 			}
@@ -638,9 +655,15 @@ func (c *Controller) handleMouse(mouse tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if !inside {
 		if c.playerStatus.Active() && mouse.X > ui.SidebarTotalWidth &&
 			mouse.Y >= rect.Height+2 && mouse.Y < layout.TotalHeight()-1 {
+			if ui.LeftClick(mouse) {
+				c.focusPane(panePlayer)
+			}
 			return c, c.playerMouse(mouse, rect.Height+2)
 		}
 		return c, nil
+	}
+	if ui.LeftClick(mouse) {
+		c.focusPane(paneContent)
 	}
 	if model := c.tabManager.ActiveModel(); model != nil {
 		// Detail action bars appear at the bottom of their own view.
@@ -687,7 +710,8 @@ func (c *Controller) renderPlayer() string {
 	timeStr := fmt.Sprintf("%s / %s", ui.FormatDuration(int(c.playerStatus.Time*1000)), ui.FormatDuration(int(c.playerStatus.Duration*1000)))
 	title := lipgloss.NewStyle().Foreground(c.theme.BrightYellow()).Bold(true).Width(width - 2).Render(c.playerStatus.Title)
 
-	playerStyle := lipgloss.NewStyle().Border(lipgloss.RoundedBorder(), true).BorderForeground(accent).Width(width).Padding(0, 1)
+	playerStyle := lipgloss.NewStyle().Border(lipgloss.RoundedBorder(), true).
+		BorderForeground(c.paneBorder(panePlayer)).Width(width).Padding(0, 1)
 
 	row2 := lipgloss.JoinHorizontal(lipgloss.Center,
 		lipgloss.NewStyle().Foreground(c.theme.BrightCyan()).Width(12).Render(status),

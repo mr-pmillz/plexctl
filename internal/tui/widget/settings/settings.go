@@ -242,6 +242,7 @@ func (m *SettingsOverlayModel) prepareSelection(id string) {
 	case "music_visualizer":
 		m.selectionList.Title = "Choose Music Visualizer"
 		items = []list.Item{
+			selectionItem{id: "waveform", value: "Waveform · live stereo waves and glowing trails (default)"},
 			selectionItem{id: "spectrum", value: "Spectrum · gradient bars and falling peaks"},
 			selectionItem{id: "mirror", value: "Mirror · symmetric spectrum"},
 			selectionItem{id: "off", value: "Off · compact controls"},

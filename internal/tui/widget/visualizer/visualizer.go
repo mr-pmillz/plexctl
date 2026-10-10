@@ -14,12 +14,15 @@ import (
 )
 
 type Model struct {
-	levels [player.SpectrumBands]float64
-	peaks  [player.SpectrumBands]float64
-	hold   [player.SpectrumBands]float64
-	left   float64
-	right  float64
-	valid  bool
+	levels    [player.SpectrumBands]float64
+	peaks     [player.SpectrumBands]float64
+	hold      [player.SpectrumBands]float64
+	left      float64
+	right     float64
+	valid     bool
+	waves     [3]player.Waveform
+	waveFade  float64
+	waveReady bool
 }
 
 func amplitude(db float64) float64 {
@@ -70,6 +73,9 @@ var palette = [...]string{
 func (m *Model) View(width, height int, mode string) string {
 	if width < 1 || height < 1 {
 		return ""
+	}
+	if mode == "waveform" {
+		return m.waveformView(width, height)
 	}
 	count := max(1, min(player.SpectrumBands, width/3))
 	step := max(1, width/count)
