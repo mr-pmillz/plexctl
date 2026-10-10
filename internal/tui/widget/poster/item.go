@@ -187,10 +187,7 @@ func RenderMiniWatched(meta *components.Metadata, theme tint.Tint) string {
 		if filled < 1 && percent > 0 {
 			filled = 1
 		}
-		empty := width - filled
-		if empty < 0 {
-			empty = 0
-		}
+		empty := max(width-filled, 0)
 
 		accent := ui.Accent(theme)
 		bar := lipgloss.NewStyle().Foreground(accent).Render(strings.Repeat("━", filled)) +

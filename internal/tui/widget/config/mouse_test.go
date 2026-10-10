@@ -20,8 +20,8 @@ func TestLibraryClickBesideEmptyColumn(t *testing.T) {
 		}
 		clicked := false
 		for y, line := range strings.Split(ansi.Strip(view), "\n") {
-			if x := strings.Index(line, "Mouse QA"); x >= 0 {
-				m.Update(tea.MouseMsg{X: lipgloss.Width(line[:x]) + 1, Y: y, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+			if before, _, ok := strings.Cut(line, "Mouse QA"); ok {
+				m.Update(tea.MouseMsg{X: lipgloss.Width(before) + 1, Y: y, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
 				clicked = true
 				break
 			}

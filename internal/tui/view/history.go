@@ -132,7 +132,7 @@ func (t *HistoryTab) fetchNextPage() tea.Msg {
 	var allRows []table.Row
 	var allMeta []operations.ListPlaybackHistoryMetadata
 
-	for i := 0; i < 30; i++ {
+	for range 30 {
 		gte := t.dayCursor.Add(-24 * time.Hour)
 		lte := t.dayCursor
 

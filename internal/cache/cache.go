@@ -63,7 +63,7 @@ func (m *Manager) GenerateKey(namespace string, params any) string {
 	op := "default"
 	if params != nil {
 		t := reflect.TypeOf(params)
-		if t.Kind() == reflect.Ptr {
+		if t.Kind() == reflect.Pointer {
 			t = t.Elem()
 		}
 		op = t.String()
@@ -114,7 +114,7 @@ func (m *Manager) Set(key string, val any, ttl time.Duration) error {
 }
 
 // Get retrieves cached data.
-func (m *Manager) Get(key string, val interface{}) error {
+func (m *Manager) Get(key string, val any) error {
 	if config.Get().NoCache {
 		return fmt.Errorf("caching is disabled")
 	}

@@ -28,7 +28,7 @@ var searchStatusCmd = &cobra.Command{
 			lastIndexed = indexedAt.Format("2006-01-02 15:04:05")
 		}
 
-		data := map[string]interface{}{
+		data := map[string]any{
 			"last_indexed":  lastIndexed,
 			"total_entries": len(entries),
 		}

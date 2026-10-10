@@ -38,7 +38,7 @@ func (p *ServerListPresenter) Rows() [][]string {
 	return rows
 }
 
-func (p *ServerListPresenter) Raw() interface{} {
+func (p *ServerListPresenter) Raw() any {
 	return p.Devices
 }
 
@@ -85,7 +85,7 @@ func (p *ServerIdentityPresenter) Rows() [][]string {
 	}}
 }
 
-func (p *ServerIdentityPresenter) Raw() interface{} {
+func (p *ServerIdentityPresenter) Raw() any {
 	return p.Container
 }
 
@@ -128,7 +128,7 @@ func (p *DevicesPresenter) Rows() [][]string {
 	return rows
 }
 
-func (p *DevicesPresenter) Raw() interface{} {
+func (p *DevicesPresenter) Raw() any {
 	return p.Devices
 }
 
@@ -168,7 +168,7 @@ type SessionMetadata struct {
 
 type SessionsPresenter struct {
 	Sessions []SessionMetadata
-	RawData  interface{}
+	RawData  any
 }
 
 func (p *SessionsPresenter) Title() string {
@@ -187,7 +187,7 @@ func (p *SessionsPresenter) Rows() [][]string {
 	return rows
 }
 
-func (p *SessionsPresenter) Raw() interface{} {
+func (p *SessionsPresenter) Raw() any {
 	return p.RawData
 }
 

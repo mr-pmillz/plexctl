@@ -68,11 +68,11 @@ func LabelAt(view string, m tea.MouseMsg, label string) bool {
 		return false
 	}
 	line := ansi.Strip(lines[m.Y])
-	i := strings.Index(line, label)
-	if i < 0 {
+	before, _, ok := strings.Cut(line, label)
+	if !ok {
 		return false
 	}
-	x := lipgloss.Width(line[:i])
+	x := lipgloss.Width(before)
 	return m.X >= x && m.X < x+lipgloss.Width(label)
 }
 

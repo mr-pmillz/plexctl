@@ -175,10 +175,7 @@ func (m *PosterList) View() string {
 	cols := ui.GetLayout().PosterColumns()
 
 	var itemViews []string
-	end := m.Offset + cols
-	if end > len(m.Items) {
-		end = len(m.Items)
-	}
+	end := min(m.Offset+cols, len(m.Items))
 
 	for i := m.Offset; i < end; i++ {
 		itemViews = append(itemViews, RenderPosterItem(m.Items[i], i == m.Cursor, m.Active, m.Theme))

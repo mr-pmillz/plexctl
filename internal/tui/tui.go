@@ -502,7 +502,7 @@ func (c *Controller) triggerUserSwitch() tea.Cmd {
 
 func (c *Controller) fullReload() tea.Cmd {
 	return func() tea.Msg {
-		updates := make(chan interface{}, 10)
+		updates := make(chan any, 10)
 		go plex.LoadData(context.Background(), updates)
 
 		for {

@@ -27,13 +27,13 @@ var historyCmd = &cobra.Command{
 		if since != "" {
 			d, err := time.ParseDuration(since)
 			if err != nil {
-				if strings.HasSuffix(since, "d") {
-					val := strings.TrimSuffix(since, "d")
+				if before, ok := strings.CutSuffix(since, "d"); ok {
+					val := before
 					var days int
 					fmt.Sscanf(val, "%d", &days)
 					d = time.Duration(days) * 24 * time.Hour
-				} else if strings.HasSuffix(since, "w") {
-					val := strings.TrimSuffix(since, "w")
+				} else if before, ok := strings.CutSuffix(since, "w"); ok {
+					val := before
 					var weeks int
 					fmt.Sscanf(val, "%d", &weeks)
 					d = time.Duration(weeks) * 7 * 24 * time.Hour

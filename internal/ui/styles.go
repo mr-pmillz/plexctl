@@ -125,7 +125,7 @@ type OutputData struct {
 	Title   string
 	Headers []string
 	Rows    [][]string
-	Raw     interface{} // Used for JSON/YAML
+	Raw     any // Used for JSON/YAML
 }
 
 // Print handles the output based on the configured format

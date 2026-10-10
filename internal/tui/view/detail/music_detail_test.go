@@ -114,8 +114,8 @@ func TestAlbumArtworkBesideClickableTracks(t *testing.T) {
 			t.Fatalf("%v: missing artwork or tracks:\n%s", size, view)
 		}
 		for y, line := range strings.Split(view, "\n") {
-			if x := strings.Index(line, "Zephyr"); x >= 0 {
-				album.Update(tea.MouseMsg{X: lipgloss.Width(line[:x]), Y: y, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+			if before, _, ok := strings.Cut(line, "Zephyr"); ok {
+				album.Update(tea.MouseMsg{X: lipgloss.Width(before), Y: y, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
 			}
 		}
 		if album.selected == nil || album.selected.RatingKey != "song" {

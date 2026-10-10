@@ -115,10 +115,7 @@ func (m *PosterGrid) fetchVisible() tea.Cmd {
 
 	startRow := m.viewport.YOffset / ui.PosterTotalHeight
 	startIdx := startRow * cols
-	endIdx := (startRow + rowsVisible + 2) * cols
-	if endIdx > len(m.Items) {
-		endIdx = len(m.Items)
-	}
+	endIdx := min((startRow+rowsVisible+2)*cols, len(m.Items))
 
 	for i := startIdx; i < endIdx; i++ {
 		if m.Items[i].Loading && !m.Items[i].Fetching {

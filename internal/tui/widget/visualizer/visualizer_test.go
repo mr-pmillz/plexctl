@@ -42,7 +42,7 @@ func TestVisualizerFitsTerminalSizes(t *testing.T) {
 					if lipgloss.Height(view) != height+1 {
 						t.Fatalf("%dx%d: unexpected height %d", width, height, lipgloss.Height(view))
 					}
-					for _, line := range strings.Split(view, "\n") {
+					for line := range strings.SplitSeq(view, "\n") {
 						if lipgloss.Width(line) > width {
 							t.Fatalf("%dx%d: line overflows terminal", width, height)
 						}

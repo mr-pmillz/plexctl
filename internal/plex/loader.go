@@ -35,7 +35,7 @@ const (
 
 // LoadData performs the initial data fetch and caching.
 // It sends progress updates through the provided channel.
-func LoadData(ctx context.Context, updates chan<- interface{}) {
+func LoadData(ctx context.Context, updates chan<- any) {
 	sendUpdate := func(p float64, msg string) {
 		if updates != nil {
 			updates <- ProgressUpdate{Percent: p, Message: msg}
