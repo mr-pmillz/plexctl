@@ -61,7 +61,7 @@ func (t *HistoryTab) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		t.width = msg.Width
+		t.width = ui.GetLayout().InnerWidth()
 		t.height = msg.Height
 		t.table.SetHeight(ui.GetTableHeight(t.height))
 		t.table.SetWidth(t.width)
@@ -193,7 +193,8 @@ func (t *HistoryTab) View() string {
 
 func (t *HistoryTab) HelpKeys() []ui.HelpKey {
 	return []ui.HelpKey{
-		{Key: "j/up", Desc: "Move Up"},
-		{Key: "k/down", Desc: "Move Down"},
+		{Key: "j/down", Desc: "Next Row"},
+		{Key: "k/up", Desc: "Previous Row"},
+		{Key: "h/left, l/right", Desc: "Scroll Columns Left / Right"},
 	}
 }

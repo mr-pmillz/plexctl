@@ -142,8 +142,9 @@ func (v *SeasonDetailView) HelpKeys() []ui.HelpKey {
 		{Key: "enter", Desc: "View Episode Details"},
 		{Key: "S", Desc: "Go to Show"},
 		{Key: "esc", Desc: "Back"},
-		{Key: "j/up", Desc: "Move Up / Scroll"},
-		{Key: "k/down", Desc: "Move Down / Scroll"},
+		{Key: "k/up", Desc: "Move Up / Scroll"},
+		{Key: "j/down", Desc: "Move Down / Scroll"},
+		{Key: "h/left, l/right", Desc: "Previous / Next Page of Episodes"},
 	}
 }
 

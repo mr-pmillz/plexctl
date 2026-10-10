@@ -99,8 +99,8 @@ func (v *MovieDetailView) hasTrailer() bool {
 func (v *MovieDetailView) HelpKeys() []ui.HelpKey {
 	keys := []ui.HelpKey{
 		{Key: "esc", Desc: "Back"},
-		{Key: "j/up", Desc: "Scroll Synopsis Up"},
-		{Key: "k/down", Desc: "Scroll Synopsis Down"},
+		{Key: "k/up", Desc: "Scroll Synopsis Up"},
+		{Key: "j/down", Desc: "Scroll Synopsis Down"},
 	}
 	if v.hasTrailer() {
 		keys = append(keys, ui.HelpKey{Key: "t", Desc: "Watch Trailer"})

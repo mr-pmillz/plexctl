@@ -526,6 +526,7 @@ func (c *Controller) fullReload() tea.Cmd {
 
 func (c *Controller) showHelp() tea.Cmd {
 	keys := []ui.HelpKey{
+		{Key: "h / j / k / l", Desc: "Navigate content: left / down / up / right (or arrow keys)"},
 		{Key: "click", Desc: "Open posters, rows, navigation, and actions"},
 		{Key: "wheel", Desc: "Scroll under pointer; Shift+wheel browses a poster row"},
 		{Key: "right click", Desc: "Back / close dialog (Shift bypasses mouse capture)"},

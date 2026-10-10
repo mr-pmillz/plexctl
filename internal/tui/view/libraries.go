@@ -91,7 +91,7 @@ func (t *LibrariesTab) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		t.width = msg.Width
+		t.width = ui.GetLayout().InnerWidth()
 		t.height = msg.Height
 		t.table.SetHeight(ui.GetTableHeight(t.height))
 		t.table.SetWidth(t.width)

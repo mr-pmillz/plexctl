@@ -1,9 +1,12 @@
 package ui
 
 import (
+	"strings"
+
 	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	tint "github.com/lrstanley/bubbletint"
 )
 
@@ -34,6 +37,7 @@ func NewTable(columns []table.Column, theme tint.Tint) Table {
 type Table struct {
 	table.Model
 	first int
+	left  int
 }
 
 func (t *Table) syncScroll() {
@@ -47,6 +51,18 @@ func (t *Table) syncScroll() {
 	} else if t.Cursor() >= t.first+height {
 		t.first = t.Cursor() - height + 1
 	}
+	t.left = max(0, min(t.left, t.contentWidth()-t.Width()))
+}
+
+func (t Table) contentWidth() int {
+	width := 0
+	for _, column := range t.Columns() {
+		if column.Width > 0 {
+			// NewTable's header and cell styles add one space on each side.
+			width += column.Width + 2
+		}
+	}
+	return width
 }
 
 func (t *Table) SetHeight(height int) { t.Model.SetHeight(max(3, height)) }
@@ -61,7 +77,12 @@ func (t *Table) View() string {
 	visible.SetCursor(0)
 	visible.GotoTop()
 	visible.SetCursor(t.Cursor() - t.first)
-	return visible.View()
+	visible.SetWidth(max(t.Width(), t.contentWidth()))
+	lines := strings.Split(visible.View(), "\n")
+	for i, line := range lines {
+		lines[i] = ansi.Cut(line, t.left, t.left+t.Width())
+	}
+	return strings.Join(lines, "\n")
 }
 
 // Click selects a visible row and reports whether it can be activated.
@@ -80,9 +101,19 @@ func (t *Table) Click(mouse tea.MouseMsg) bool {
 }
 
 func (t Table) Update(msg tea.Msg) (Table, tea.Cmd) {
+	if key, ok := msg.(tea.KeyMsg); ok && t.Focused() {
+		switch key.String() {
+		case "h", "left":
+			t.left -= 3
+		case "l", "right":
+			t.left += 3
+		}
+	}
 	if mouse, ok := msg.(tea.MouseMsg); ok {
 		if _, inside := (Rect{Width: t.Width(), Height: t.Height() + 2}).Local(mouse); inside {
 			switch delta := WheelDelta(mouse); {
+			case delta != 0 && (mouse.Shift || mouse.Button == tea.MouseButtonWheelLeft || mouse.Button == tea.MouseButtonWheelRight):
+				t.left += delta * 3
 			case delta < 0:
 				t.MoveUp(3)
 			case delta > 0:
@@ -108,12 +139,15 @@ func UpdateTableTheme(t *Table, width, height int) {
 	rows := t.Rows()
 	cursor := t.Cursor()
 	cols := t.Columns()
+	first, left := t.first, t.left
 
 	*t = NewTable(cols, theme)
 	t.SetRows(rows)
 	t.SetCursor(cursor)
 	t.SetWidth(width)
 	t.SetHeight(GetTableHeight(height))
+	t.first, t.left = first, left
+	t.syncScroll()
 }
 
 // GetTableHeight returns the appropriate table height based on available screen space

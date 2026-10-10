@@ -103,6 +103,9 @@ list/poster views.
 alphabet rail, and active player. The focused pane is highlighted. In the sidebar,
 use **j/k** or the arrows to select a library, then **Enter** to open it.
 **L** opens library settings; **Ctrl+S** opens global settings.
+In Sessions, History, and Tasks, **j/k** select rows and **h/l** scroll wide tables
+left/right. The search Status page scrolls with **hjkl** too, including during
+indexing. Arrow keys provide the same navigation.
 
 Movie and TV cover posters automatically use high-resolution images in Kitty
 0.28+ (also through tmux), with text posters as a fallback in other terminals.
