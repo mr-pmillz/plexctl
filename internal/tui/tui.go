@@ -228,6 +228,7 @@ func (c *Controller) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case ui.JumpToLetterMsg:
 		if target, ok := c.tabManager.ActiveModel().(ui.LetterJumper); ok && target.CanJumpLetters() {
+			c.focusPane(paneContent)
 			return c, target.JumpToLetter(msg.Letter)
 		}
 		return c, nil
@@ -301,6 +302,7 @@ func (c *Controller) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return c, c.player.TogglePause()
 			}
 		case "tab":
+			c.focusPane(paneContent)
 			return c, c.tabManager.NextTab()
 		case "x":
 			if c.playerStatus.Active() {
@@ -315,6 +317,7 @@ func (c *Controller) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "u":
 			return c, c.triggerUserSwitch()
 		case "shift+tab":
+			c.focusPane(paneContent)
 			return c, c.tabManager.PrevTab()
 		}
 		if c.focus != paneContent {
@@ -391,6 +394,7 @@ func (c *Controller) handleJumpToDetail(msg ui.JumpToDetailMsg) tea.Cmd {
 			if libTab, ok := tab.(*view.MediaView); ok {
 				if libTab.GetSectionID() == msg.SectionID {
 					slog.Debug("Controller: Found matching library tab", "idx", i)
+					c.focusPane(paneContent)
 					initCmd := c.tabManager.SetActive(i)
 					c.returnTabIdx = msg.ReturnTabIdx
 					return tea.Batch(initCmd, libTab.ShowDetail(msg.RatingKey, msg.Type))
@@ -402,6 +406,7 @@ func (c *Controller) handleJumpToDetail(msg ui.JumpToDetailMsg) tea.Cmd {
 	// 2. Fallback: If no section specified OR not found, try the active tab
 	if activeTab, ok := c.tabManager.ActiveModel().(*view.MediaView); ok {
 		slog.Debug("Controller: Applying jump to active library tab")
+		c.focusPane(paneContent)
 		return activeTab.ShowDetail(msg.RatingKey, msg.Type)
 	}
 
@@ -625,6 +630,7 @@ func (c *Controller) footerText() string {
 func (c *Controller) handleMouse(mouse tea.MouseMsg) (tea.Model, tea.Cmd) {
 	layout := ui.GetLayout()
 	if ui.RightClick(mouse) {
+		c.focusPane(paneContent)
 		return c.Update(ui.KeyPress("esc"))
 	}
 	if mouse.X < ui.SidebarWidth && mouse.Y < layout.TotalHeight()-1 {
