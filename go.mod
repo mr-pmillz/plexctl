@@ -8,7 +8,6 @@ require (
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
-	github.com/dexterlb/mpvipc v0.0.0-20241005113212-7cdefca0e933
 	github.com/kyokomi/emoji/v2 v2.2.13
 	github.com/lovelydeng/gomoji v0.0.0-20221120141925-ea446dc92ac0
 	github.com/olekukonko/tablewriter v1.1.3
@@ -69,7 +68,7 @@ require (
 	github.com/lucasb-eyer/go-colorful v1.3.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-localereader v0.0.1 // indirect
-	github.com/mattn/go-runewidth v0.0.19
+	github.com/mattn/go-runewidth v0.0.19 // indirect
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 // indirect
 	github.com/muesli/cancelreader v0.2.2
 	github.com/muesli/termenv v0.16.0 // indirect
@@ -92,7 +91,7 @@ require (
 	golang.org/x/crypto v0.51.0 // indirect
 	golang.org/x/mod v0.35.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.45.0 // indirect
+	golang.org/x/sys v0.45.0
 	golang.org/x/text v0.37.0
 	golang.org/x/tools v0.44.0 // indirect
 )
