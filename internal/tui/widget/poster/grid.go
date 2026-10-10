@@ -1,6 +1,8 @@
 package poster
 
 import (
+	"strings"
+
 	"github.com/LukeHagar/plexgo/models/components"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -45,6 +47,36 @@ func (m *PosterGrid) Init() tea.Cmd {
 	return m.fetchVisible()
 }
 
+// SetCursor scrolls to an absolute item, including items on newly appended pages.
+func (m *PosterGrid) SetCursor(index int) tea.Cmd {
+	m.Cursor = max(0, min(index, len(m.Items)-1))
+	m.View()
+	return m.syncScroll()
+}
+
+// SetSize lets embedded grids, such as an artist's albums, use their own
+// content area instead of the entire library viewport.
+func (m *PosterGrid) SetSize(width, height int) {
+	m.viewport.Width, m.viewport.Height = max(1, width), max(1, height)
+	m.View()
+	m.scrollToCursor()
+}
+
+func (m *PosterGrid) columns() int {
+	width := m.viewport.Width
+	if width <= 0 {
+		width = ui.GetLayout().InnerWidth()
+	}
+	return max(1, width/ui.PosterStepWidth)
+}
+
+// LastVisibleIndex follows the viewport even when the mouse scrolls without
+// moving the keyboard selection. Libraries use it to load the next page.
+func (m *PosterGrid) LastVisibleIndex() int {
+	rows := (m.viewport.YOffset + max(1, m.viewport.Height) + ui.PosterTotalHeight - 1) / ui.PosterTotalHeight
+	return min(len(m.Items)-1, rows*m.columns()-1)
+}
+
 func (m *PosterGrid) SetItems(metadata []components.Metadata) tea.Cmd {
 	newItems := make([]*PosterItem, len(metadata))
 	for i, meta := range metadata {
@@ -70,14 +102,13 @@ func (m *PosterGrid) SetItems(metadata []components.Metadata) tea.Cmd {
 }
 
 func (m *PosterGrid) fetchVisible() tea.Cmd {
-	layout := ui.GetLayout()
-	cols := layout.PosterColumns()
+	cols := m.columns()
 	if cols <= 0 {
 		return nil
 	}
 
 	var cmds []tea.Cmd
-	rowsVisible := layout.ContentHeight() / ui.PosterTotalHeight
+	rowsVisible := m.viewport.Height / ui.PosterTotalHeight
 	if rowsVisible <= 0 {
 		rowsVisible = 3
 	}
@@ -90,7 +121,8 @@ func (m *PosterGrid) fetchVisible() tea.Cmd {
 	}
 
 	for i := startIdx; i < endIdx; i++ {
-		if m.Items[i].Loading {
+		if m.Items[i].Loading && !m.Items[i].Fetching {
+			m.Items[i].Fetching = true
 			cmds = append(cmds, FetchPoster(0, i, m.Items[i].Metadata))
 		}
 	}
@@ -111,8 +143,12 @@ func (m *PosterGrid) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case PosterLoadedMsg:
 		if msg.Index >= 0 && msg.Index < len(m.Items) {
+			if msg.RatingKey != ui.PtrToString(m.Items[msg.Index].Metadata.RatingKey) {
+				return m, nil
+			}
 			m.Items[msg.Index].Poster = msg.View
 			m.Items[msg.Index].Loading = false
+			m.Items[msg.Index].Fetching = false
 		}
 	case tea.MouseMsg:
 		if _, inside := (ui.Rect{Width: m.viewport.Width, Height: m.viewport.Height}).Local(msg); !inside {
@@ -123,7 +159,7 @@ func (m *PosterGrid) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.fetchVisible()
 		}
 		if ui.LeftClick(msg) {
-			cols := ui.GetLayout().PosterColumns()
+			cols := m.columns()
 			column := msg.X / ui.PosterStepWidth
 			row := (msg.Y + m.viewport.YOffset) / ui.PosterTotalHeight
 			index := row*cols + column
@@ -134,8 +170,16 @@ func (m *PosterGrid) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeyMsg:
-		cols := ui.GetLayout().PosterColumns()
+		cols := m.columns()
 		switch msg.String() {
+		case "home":
+			return m, m.SetCursor(0)
+		case "end":
+			return m, m.SetCursor(len(m.Items) - 1)
+		case "pgup", "ctrl+u":
+			return m, m.SetCursor(m.Cursor - max(1, m.viewport.Height/ui.PosterTotalHeight)*cols)
+		case "pgdown", "ctrl+d":
+			return m, m.SetCursor(m.Cursor + max(1, m.viewport.Height/ui.PosterTotalHeight)*cols)
 		case "up", "k":
 			if m.Cursor >= cols {
 				m.Cursor -= cols
@@ -169,8 +213,12 @@ func (m *PosterGrid) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *PosterGrid) syncScroll() tea.Cmd {
-	layout := ui.GetLayout()
-	cols := layout.PosterColumns()
+	m.scrollToCursor()
+	return m.fetchVisible()
+}
+
+func (m *PosterGrid) scrollToCursor() {
+	cols := m.columns()
 	row := m.Cursor / cols
 	targetY := row * ui.PosterTotalHeight
 
@@ -180,7 +228,6 @@ func (m *PosterGrid) syncScroll() tea.Cmd {
 		m.viewport.SetYOffset(targetY - m.viewport.Height + ui.PosterTotalHeight)
 	}
 
-	return m.fetchVisible()
 }
 
 func (m *PosterGrid) View() string {
@@ -188,19 +235,24 @@ func (m *PosterGrid) View() string {
 		return ""
 	}
 
-	layout := ui.GetLayout()
-	cols := layout.PosterColumns()
+	cols := m.columns()
 
-	var rows []string
-	var currentRow []string
-
-	for i, item := range m.Items {
-		currentRow = append(currentRow, RenderPosterItem(item, i == m.Cursor, true, m.Theme))
-
-		if len(currentRow) == cols || i == len(m.Items)-1 {
-			rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, currentRow...))
-			currentRow = nil
+	rowCount := (len(m.Items) + cols - 1) / cols
+	startRow := m.viewport.YOffset / ui.PosterTotalHeight
+	endRow := min(rowCount, (m.viewport.YOffset+max(1, m.viewport.Height)+ui.PosterTotalHeight-1)/ui.PosterTotalHeight)
+	rows := make([]string, rowCount)
+	// Only visible posters need rendering, even with thousands of artists and
+	// a 20 FPS audio visualizer. Blank offscreen rows retain scroll geometry.
+	for row := range rowCount {
+		if row < startRow || row >= endRow {
+			rows[row] = strings.Repeat("\n", ui.PosterTotalHeight-1)
+			continue
 		}
+		items := make([]string, 0, cols)
+		for i := row * cols; i < min((row+1)*cols, len(m.Items)); i++ {
+			items = append(items, RenderPosterItem(m.Items[i], i == m.Cursor, true, m.Theme))
+		}
+		rows[row] = lipgloss.JoinHorizontal(lipgloss.Top, items...)
 	}
 
 	m.viewport.SetContent(lipgloss.JoinVertical(lipgloss.Left, rows...))

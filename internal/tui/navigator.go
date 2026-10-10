@@ -40,6 +40,9 @@ func (n *Navigator) Push(o Overlay) tea.Cmd {
 
 func (n *Navigator) Pop() {
 	if len(n.overlays) > 0 {
+		if closer, ok := n.ActiveOverlay().(interface{ Close() }); ok {
+			closer.Close()
+		}
 		n.overlays = n.overlays[:len(n.overlays)-1]
 	}
 }

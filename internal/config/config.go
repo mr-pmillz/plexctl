@@ -114,6 +114,8 @@ type Config struct {
 	AutoHomeLogin     bool              `mapstructure:"auto_home_login"`
 	CloseVideoOnQuit  bool              `mapstructure:"close_video_on_quit"`
 	TerminalVideo     VideoOutput       `mapstructure:"terminal_video"`
+	MusicPlayer       string            `mapstructure:"music_player"`
+	MusicVisualizer   string            `mapstructure:"music_visualizer"`
 
 	// Server management
 	DefaultServer string            `mapstructure:"default_server"` // Stores the ClientIdentifier
@@ -151,6 +153,8 @@ func Get() *Config {
 			AutoHomeLogin:   true,
 			DefaultViewMode: ViewModePoster,
 			TerminalVideo:   VideoAuto,
+			MusicPlayer:     "terminal",
+			MusicVisualizer: "spectrum",
 		}
 	})
 	return instance
@@ -217,6 +221,8 @@ func (c *Config) Save() error {
 	viper.Set("auto_home_login", c.AutoHomeLogin)
 	viper.Set("close_video_on_quit", c.CloseVideoOnQuit)
 	viper.Set("terminal_video", c.TerminalVideo)
+	viper.Set("music_player", c.MusicPlayer)
+	viper.Set("music_visualizer", c.MusicVisualizer)
 	viper.Set("cache_dir", c.CacheDir)
 	viper.Set("default_server", c.DefaultServer)
 	viper.Set("servers", c.Servers)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"strings"
 	"time"
 
@@ -30,7 +31,8 @@ func PlayMedia(metadata *components.Metadata, noReport bool, output config.Video
 	if strings.Contains(part.Key, "?") {
 		separator = "&"
 	}
-	playURL := fmt.Sprintf("%s%s%sX-Plex-Token=%s", serverCfg.URL, part.Key, separator, cfg.Token)
+	token := url.QueryEscape(cfg.ServerToken())
+	playURL := fmt.Sprintf("%s%s%sX-Plex-Token=%s", serverCfg.URL, part.Key, separator, token)
 
 	var subtitles []ExternalSubtitle
 	for _, stream := range part.Stream {
@@ -39,7 +41,7 @@ func PlayMedia(metadata *components.Metadata, noReport bool, output config.Video
 			if strings.Contains(stream.Key, "?") {
 				sep = "&"
 			}
-			subURL := fmt.Sprintf("%s%s%sX-Plex-Token=%s", serverCfg.URL, stream.Key, sep, cfg.Token)
+			subURL := fmt.Sprintf("%s%s%sX-Plex-Token=%s", serverCfg.URL, stream.Key, sep, token)
 			lang := ""
 			if stream.LanguageCode != nil {
 				lang = *stream.LanguageCode
@@ -59,6 +61,9 @@ func PlayMedia(metadata *components.Metadata, noReport bool, output config.Video
 	}
 
 	title := metadata.Title
+	if metadata.Type == "track" && metadata.GrandparentTitle != nil {
+		title = *metadata.GrandparentTitle + " — " + title
+	}
 	if noReport {
 		title = "Trailer: " + title
 	}

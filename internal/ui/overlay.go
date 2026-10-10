@@ -5,7 +5,6 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/mattn/go-runewidth"
 )
 
 // Overlay composites the 'overlay' string on top of the 'base' string,
@@ -56,12 +55,12 @@ func Overlay(base, overlay string, width, height int) string {
 
 // Ellipsis truncates a string to a max width and adds ... if needed.
 func Ellipsis(s string, maxWidth int) string {
-	w := runewidth.StringWidth(s)
+	w := ansi.StringWidth(s)
 	if w <= maxWidth {
 		return s
 	}
 	if maxWidth <= 3 {
-		return strings.Repeat(".", maxWidth)
+		return strings.Repeat(".", max(0, maxWidth))
 	}
-	return runewidth.Truncate(s, maxWidth-3, "...")
+	return ansi.Truncate(s, maxWidth, "...")
 }

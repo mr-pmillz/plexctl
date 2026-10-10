@@ -41,15 +41,29 @@ func (v *SearchStatusView) Init() tea.Cmd {
 }
 
 func (v *SearchStatusView) Refresh() tea.Cmd {
+	if v.isIndexing {
+		return nil
+	}
 	v.isIndexing = true
 	v.err = nil
 	v.progress = search.IndexProgress{}
 	v.progressChan = make(chan search.IndexProgress, 100)
-	return tea.Batch(v.spinner.Tick, v.runReindex, v.waitForProgress())
+	progress := v.progressChan
+	return tea.Batch(v.spinner.Tick, func() tea.Msg {
+		defer close(progress)
+		err := search.GetIndex().Reindex(context.Background(), progress)
+		return SearchIndexFinishedMsg{owner: v, err: err}
+	}, v.waitForProgress())
 }
 
-type reindexProgressMsg search.IndexProgress
-type reindexFinishedMsg struct{ err error }
+type SearchIndexProgressMsg struct {
+	owner    *SearchStatusView
+	progress search.IndexProgress
+}
+type SearchIndexFinishedMsg struct {
+	owner *SearchStatusView
+	err   error
+}
 
 func (v *SearchStatusView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -59,10 +73,16 @@ func (v *SearchStatusView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ui.ThemeChangedMsg:
 		v.theme = msg.Theme
 		v.spinner.Style = lipgloss.NewStyle().Foreground(ui.Accent(v.theme))
-	case reindexProgressMsg:
-		v.progress = search.IndexProgress(msg)
+	case SearchIndexProgressMsg:
+		if msg.owner != v || !v.isIndexing {
+			return v, nil
+		}
+		v.progress = msg.progress
 		return v, v.waitForProgress()
-	case reindexFinishedMsg:
+	case SearchIndexFinishedMsg:
+		if msg.owner != v {
+			return v, nil
+		}
 		v.isIndexing = false
 		v.err = msg.err
 		v.progressChan = nil
@@ -86,29 +106,23 @@ func (v *SearchStatusView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return v, nil
 }
 
-func (v *SearchStatusView) runReindex() tea.Msg {
-	ctx := context.Background()
-	idx := search.GetIndex()
-	err := idx.Reindex(ctx, v.progressChan)
-	v.progressChan <- search.IndexProgress{Message: "DONE"}
-	return reindexFinishedMsg{err: err}
-}
-
 func (v *SearchStatusView) waitForProgress() tea.Cmd {
+	progress := v.progressChan
 	return func() tea.Msg {
-		if v.progressChan == nil {
+		if progress == nil {
 			return nil
 		}
-		p, ok := <-v.progressChan
-		if !ok || p.Message == "DONE" {
-			return nil // Let runReindex return the finished msg
+		p, ok := <-progress
+		if !ok {
+			return nil
 		}
-		return reindexProgressMsg(p)
+		return SearchIndexProgressMsg{owner: v, progress: p}
 	}
 }
 
 func (v *SearchStatusView) View() string {
 	idx := search.GetIndex()
+	entries, indexedAt := idx.Snapshot()
 
 	titleStyle := ui.TitleStyle(v.theme)
 	labelStyle := ui.LabelStyle(v.theme)
@@ -119,12 +133,12 @@ func (v *SearchStatusView) View() string {
 	lines = append(lines, "")
 
 	lastIndexed := "Never"
-	if !idx.LastIndexed.IsZero() {
-		lastIndexed = idx.LastIndexed.Format("2006-01-02 15:04:05")
+	if !indexedAt.IsZero() {
+		lastIndexed = indexedAt.Format("2006-01-02 15:04:05")
 	}
 
 	lines = append(lines, labelStyle.Render("Last Indexed: ")+valueStyle.Render(lastIndexed))
-	lines = append(lines, labelStyle.Render("Total Entries: ")+valueStyle.Render(fmt.Sprintf("%d", len(idx.Entries))))
+	lines = append(lines, labelStyle.Render("Total Entries: ")+valueStyle.Render(fmt.Sprintf("%d", len(entries))))
 	lines = append(lines, "")
 
 	lines = append(lines, titleStyle.Render("LIBRARY STATISTICS"))

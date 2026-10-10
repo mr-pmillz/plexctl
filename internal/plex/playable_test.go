@@ -13,6 +13,7 @@ import (
 )
 
 func TestResolveMusicPlayback(t *testing.T) {
+	t.Setenv("PLEXCTL_TOKEN", "music-test-token")
 	track := components.Metadata{RatingKey: ptr("track"), Type: "track", Title: "Song", Media: []components.Media{
 		{}, // Plex can list an unavailable version before a playable one.
 		{Part: []components.Part{{}, {Key: "/music.flac"}}},
@@ -21,6 +22,11 @@ func TestResolveMusicPlayback(t *testing.T) {
 	album := components.Metadata{RatingKey: ptr("album"), Type: "album"}
 	empty := components.Metadata{RatingKey: ptr("empty"), Type: "album"}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("X-Plex-Token") != "music-test-token" && r.Header.Get("X-Plex-Token") != "music-test-token" {
+			t.Error("music request did not use the configured token")
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		var items []components.Metadata
 		switch r.URL.Path {

@@ -16,6 +16,7 @@ import (
 	"github.com/ygelfand/plexctl/internal/termgraphics"
 	"github.com/ygelfand/plexctl/internal/tui"
 	"github.com/ygelfand/plexctl/internal/tui/artwork"
+	"github.com/ygelfand/plexctl/internal/tui/player"
 )
 
 var tuiCmd = &cobra.Command{
@@ -64,6 +65,13 @@ func runTUI() error {
 
 	slog.Debug("TUI: Initializing controller and program")
 	p := tea.NewProgram(tui.NewController(result), tea.WithAltScreen(), tea.WithOutput(output), tea.WithMouseCellMotion())
+	defer func() {
+		pm := player.GetPlayerManager()
+		if pm.Status().AudioOnly || cfg.CloseVideoOnQuit {
+			pm.StopPlayback()()
+		}
+		pm.Close()
+	}()
 
 	if _, err := p.Run(); err != nil {
 		slog.Error("TUI: Program run failed", "error", err)

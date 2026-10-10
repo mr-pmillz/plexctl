@@ -3,10 +3,8 @@ package plex
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/http/httputil"
-	"os"
 	"runtime"
 	"time"
 
@@ -59,23 +57,7 @@ func (t *loggingTransport) verbosityBody() bool {
 }
 
 func NewClient() (*Client, error) {
-	cfg := config.Get()
-
-	// 1. Check for Token (Global)
-	token := os.Getenv("PLEXCTL_TOKEN")
-	source := "env"
-	if token == "" {
-		token = cfg.Token
-		source = "main account"
-		// If a home user access token is set, it overrides the main account token
-		if cfg.HomeUser.AccessToken != "" {
-			token = cfg.HomeUser.AccessToken
-			source = "home user access"
-		}
-	}
-
-	slog.Debug("NewClient: Initializing with token", "source", source)
-	return NewClientWithToken(token)
+	return NewClientWithToken(config.Get().ServerToken())
 }
 
 // NewHomeUserClient specifically uses the V2 AuthToken (general user token)

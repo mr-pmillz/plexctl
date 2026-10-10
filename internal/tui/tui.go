@@ -20,11 +20,14 @@ import (
 	"github.com/ygelfand/plexctl/internal/tui/view/detail"
 	tuiconfig "github.com/ygelfand/plexctl/internal/tui/widget/config"
 	"github.com/ygelfand/plexctl/internal/tui/widget/help"
+	"github.com/ygelfand/plexctl/internal/tui/widget/letterjump"
 	"github.com/ygelfand/plexctl/internal/tui/widget/playback"
+	"github.com/ygelfand/plexctl/internal/tui/widget/poster"
 	"github.com/ygelfand/plexctl/internal/tui/widget/resume"
 	tuisearch "github.com/ygelfand/plexctl/internal/tui/widget/search"
 	"github.com/ygelfand/plexctl/internal/tui/widget/settings"
 	"github.com/ygelfand/plexctl/internal/tui/widget/userpicker"
+	"github.com/ygelfand/plexctl/internal/tui/widget/visualizer"
 	"github.com/ygelfand/plexctl/internal/ui"
 	"go.dalton.dog/bubbleup"
 )
@@ -40,6 +43,8 @@ type Controller struct {
 
 	playerStatus player.PlayerStatus
 	returnTabIdx int
+	visualizer   visualizer.Model
+	visualTick   time.Time
 }
 
 type switchUserSuccessMsg struct{}
@@ -102,7 +107,6 @@ func (c *Controller) Init() tea.Cmd {
 		cmds = append(cmds, overlay.Init())
 	}
 
-	cmds = append(cmds, c.player.WaitForUpdates())
 	cmds = append(cmds, c.player.PollUpdates())
 	cmds = append(cmds, c.player.Reconnect())
 	cmds = append(cmds, c.alert.Init())
@@ -118,11 +122,40 @@ func (c *Controller) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
+	case view.SearchIndexProgressMsg, view.SearchIndexFinishedMsg:
+		for _, model := range c.tabManager.tabModels {
+			if status, ok := model.(*view.SearchStatusView); ok {
+				_, cmd := status.Update(msg)
+				cmds = append(cmds, cmd)
+			}
+		}
+		return c, tea.Batch(cmds...)
+	case poster.PosterLoadedMsg, detail.PosterDataMsg:
+		for _, model := range c.tabManager.tabModels {
+			if model != nil {
+				_, cmd := model.Update(msg)
+				cmds = append(cmds, cmd)
+			}
+		}
+		return c, tea.Batch(cmds...)
+	case ui.MediaPageMsg:
+		// A request belongs to its library even if the user changed tabs or
+		// opened a dialog while the server was responding.
+		for _, model := range c.tabManager.tabModels {
+			if library, ok := model.(*view.MediaView); ok && library.GetSectionID() == msg.SectionID {
+				_, cmd := library.Update(msg)
+				return c, cmd
+			}
+		}
+		return c, nil
 	case tea.WindowSizeMsg:
+		ui.GetLayout().SetPlayerHeight(c.playerHeight(msg.Height))
 		ui.GetLayout().Update(msg.Width, msg.Height, c.playerStatus.Active())
 		for i, model := range c.tabManager.tabModels {
 			if model != nil {
-				c.tabManager.tabModels[i], _ = model.Update(msg)
+				var cmd tea.Cmd
+				c.tabManager.tabModels[i], cmd = model.Update(msg)
+				cmds = append(cmds, cmd)
 			}
 		}
 
@@ -135,7 +168,7 @@ func (c *Controller) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				break
 			}
 		}
-		return c, c.tabManager.setupTabs(c.data, c.theme, ui.SidebarWidth)
+		return c, tea.Batch(c.tabManager.setupTabs(c.data, c.theme, ui.SidebarWidth), resizePlayer())
 
 	case tuiconfig.ConfigFinishedMsg:
 		cfg := config.Get()
@@ -182,14 +215,21 @@ func (c *Controller) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return c, c.tabManager.setupTabs(c.data, c.theme, ui.SidebarWidth)
 	}
 
-	if navCmd, captured := c.navigator.Update(msg); captured {
+	navCmd, captured := c.navigator.Update(msg)
+	if captured {
 		return c, navCmd
 	}
+	cmds = append(cmds, navCmd)
 	if mouse, ok := msg.(tea.MouseMsg); ok {
 		return c.handleMouse(mouse)
 	}
 
 	switch msg := msg.(type) {
+	case ui.JumpToLetterMsg:
+		if target, ok := c.tabManager.ActiveModel().(ui.LetterJumper); ok && target.CanJumpLetters() {
+			return c, target.JumpToLetter(msg.Letter)
+		}
+		return c, nil
 	case ui.RequestPlayMsg:
 		return c, player.FetchAndPlay(msg.RatingKey, msg.Output)
 	case ui.ResumeChoiceMsg:
@@ -199,40 +239,20 @@ func (c *Controller) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ui.JumpToDetailMsg:
 		return c, c.handleJumpToDetail(msg)
 	case player.PlayerStatusMsgPoller:
-		if msg == (player.PlayerStatusMsgPoller{}) && !c.playerStatus.Active() {
-			return c, nil
-		}
-		oldActive := c.playerStatus.Active()
-		c.playerStatus = c.player.Status()
-		if oldActive != c.playerStatus.Active() {
-			ui.GetLayout().Update(ui.GetLayout().TotalWidth(), ui.GetLayout().TotalHeight(), c.playerStatus.Active())
-			cmds = append(cmds, func() tea.Msg {
-				return tea.WindowSizeMsg{Width: ui.GetLayout().TotalWidth(), Height: ui.GetLayout().TotalHeight()}
-			})
-		}
-		if c.playerStatus.Active() {
-			cmds = append(cmds, c.player.PollUpdates())
-		}
+		cmds = append(cmds, c.refreshPlayer(), c.player.PollUpdates())
 		return c, tea.Batch(cmds...)
 	case player.PlayerStatusMsg:
-		oldActive := c.playerStatus.Active()
-		c.playerStatus = c.player.Status()
-		if oldActive != c.playerStatus.Active() {
-			ui.GetLayout().Update(ui.GetLayout().TotalWidth(), ui.GetLayout().TotalHeight(), c.playerStatus.Active())
-			cmds = append(cmds, func() tea.Msg {
-				return tea.WindowSizeMsg{Width: ui.GetLayout().TotalWidth(), Height: ui.GetLayout().TotalHeight()}
-			})
-			if c.playerStatus.Active() {
-				cmds = append(cmds, c.player.PollUpdates())
-			}
-		}
-		return c, tea.Batch(append(cmds, c.player.WaitForUpdates())...)
+		return c, c.refreshPlayer()
 
 	case tea.KeyMsg:
 		slog.Log(context.Background(), config.LevelTrace, "TUI: key press", "key", msg.String())
 		switch msg.String() {
+		case "g":
+			if target, ok := c.tabManager.ActiveModel().(ui.LetterJumper); ok && target.CanJumpLetters() {
+				return c, c.navigator.Push(letterjump.New(c.theme))
+			}
 		case "q", "ctrl+c":
-			if config.Get().CloseVideoOnQuit {
+			if config.Get().CloseVideoOnQuit || c.playerStatus.AudioOnly {
 				return c, c.player.Stop()
 			}
 			return c, tea.Quit
@@ -250,6 +270,15 @@ func (c *Controller) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if provider, ok := c.tabManager.ActiveModel().(ui.PlayableProvider); ok {
 				meta := provider.GetSelectedMetadata()
 				if meta != nil && meta.RatingKey != nil {
+					if config.IsMusic(meta.Type) {
+						if msg.String() == "v" {
+							return c, c.navigator.Push(playback.NewMusic(*meta.RatingKey, meta.Title, c.theme))
+						}
+						output = config.Get().MusicOutput()
+						if msg.String() == "ctrl+p" {
+							output = config.AudioTerminal
+						}
+					}
 					if msg.String() == "v" {
 						return c, c.navigator.Push(playback.New(*meta.RatingKey, meta.Title, c.theme))
 					}
@@ -272,6 +301,10 @@ func (c *Controller) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "x":
 			if c.playerStatus.Active() {
 				return c, c.player.StopPlayback()
+			}
+		case "[", "]", "+", "=", "-", "m", "z":
+			if c.playerStatus.Active() {
+				return c, c.musicControl(msg.String())
 			}
 		case "/":
 			return c, c.navigator.Push(tuisearch.NewSearchOverlayModel(c.theme))
@@ -483,13 +516,18 @@ func (c *Controller) showHelp() tea.Cmd {
 		{Key: "wheel", Desc: "Scroll under pointer; Shift+wheel browses a poster row"},
 		{Key: "right click", Desc: "Back / close dialog (Shift bypasses mouse capture)"},
 		{Key: "tab", Desc: "Switch Library"},
+		{Key: "g, then A–Z / #", Desc: "Jump to a letter (or click the right-hand alphabet)"},
+		{Key: "Home / End / PgUp / PgDn", Desc: "First / last item / previous / next page"},
 		{Key: "h", Desc: "Home"},
 		{Key: "ctrl+s", Desc: "Global Settings"},
 		{Key: "ctrl+l", Desc: "Libraries"},
 		{Key: "u", Desc: "Switch User"},
 		{Key: "p", Desc: "Play Selected"},
 		{Key: "ctrl+p", Desc: "Play in Terminal"},
-		{Key: "v", Desc: "Terminal Playback (Kitty / Sixel / Text)"},
+		{Key: "v", Desc: "Choose player (music: terminal / window; video: renderer)"},
+		{Key: "[ / ]", Desc: "Seek backward / forward 10 seconds"},
+		{Key: "+ / - / m", Desc: "Volume up / down / mute"},
+		{Key: "z", Desc: "Cycle music visualizer: spectrum / mirror / off"},
 		{Key: "x", Desc: "Stop Playback"},
 		{Key: "q", Desc: "Quit"},
 		{Key: "?", Desc: "Help"},
@@ -561,9 +599,9 @@ func (c *Controller) renderBaseView() string {
 }
 
 func (c *Controller) footerText() string {
-	text := "[p] Play | [v] Video | [V] View | [/] Search | [?] Help | [q] Quit"
+	text := "[p] Play | [v] Player | [V] View | [/] Search | [?] Help | [q] Quit"
 	if c.playerStatus.Active() {
-		text = "[p] Play | [v] Video | [x] Stop | [/] Search | [?] Help | [q] Quit"
+		text = "[p] Play | [v] Player | [x] Stop | [/] Search | [?] Help | [q] Quit"
 	}
 	return ui.Ellipsis(text, max(1, ui.GetLayout().TotalWidth()-2))
 }
@@ -598,9 +636,9 @@ func (c *Controller) handleMouse(mouse tea.MouseMsg) (tea.Model, tea.Cmd) {
 	rect := ui.Rect{X: ui.SidebarTotalWidth + 2, Y: 1, Width: layout.InnerWidth(), Height: layout.ContentHeight()}
 	local, inside := rect.Local(mouse)
 	if !inside {
-		if c.playerStatus.Active() && ui.LeftClick(mouse) && mouse.X > ui.SidebarTotalWidth &&
+		if c.playerStatus.Active() && mouse.X > ui.SidebarTotalWidth &&
 			mouse.Y >= rect.Height+2 && mouse.Y < layout.TotalHeight()-1 {
-			return c, c.player.TogglePause()
+			return c, c.playerMouse(mouse, rect.Height+2)
 		}
 		return c, nil
 	}
@@ -623,6 +661,9 @@ func (c *Controller) handleMouse(mouse tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 func (c *Controller) renderPlayer() string {
 	layout := ui.GetLayout()
+	if c.playerStatus.AudioOnly {
+		return c.renderMusicPlayer()
+	}
 	width := layout.MainAreaContentWidth()
 	status := "▶ PLAYING"
 	if c.playerStatus.Paused() {
@@ -631,7 +672,7 @@ func (c *Controller) renderPlayer() string {
 
 	progress := 0.0
 	if c.playerStatus.Duration > 0 {
-		progress = c.playerStatus.Time / c.playerStatus.Duration
+		progress = max(0, min(1, c.playerStatus.Time/c.playerStatus.Duration))
 	}
 
 	barWidth := max(width-35, 10)

@@ -78,6 +78,8 @@ func (m *SettingsOverlayModel) updateItems() {
 		settingItem{id: "auto_home_login", title: "Auto Home Login", description: "Login automatically if token exists", current: fmt.Sprintf("%v", cfg.AutoHomeLogin)},
 		settingItem{id: "close_video_on_quit", title: "Close Video On Quit", description: "Close mpv when exiting app", current: fmt.Sprintf("%v", cfg.CloseVideoOnQuit)},
 		settingItem{id: "terminal_video", title: "Terminal Video", description: "Video renderer for Ctrl+P", current: string(cfg.TerminalVideo)},
+		settingItem{id: "music_player", title: "Music Player", description: "Where music plays", current: cfg.MusicPlayer},
+		settingItem{id: "music_visualizer", title: "Music Visualizer", description: "Audio-reactive terminal display (z to cycle)", current: cfg.MusicVisualizer},
 	}
 	m.list.SetItems(items)
 }
@@ -231,6 +233,19 @@ func (m *SettingsOverlayModel) prepareSelection(id string) {
 			selectionItem{id: string(config.VideoSixel), value: "Sixel graphics"},
 			selectionItem{id: string(config.VideoTCT), value: "TCT (text fallback)"},
 		}
+	case "music_player":
+		m.selectionList.Title = "Choose Music Player"
+		items = []list.Item{
+			selectionItem{id: "terminal", value: "In this terminal (audio + visualizer)"},
+			selectionItem{id: "window", value: "Separate player window"},
+		}
+	case "music_visualizer":
+		m.selectionList.Title = "Choose Music Visualizer"
+		items = []list.Item{
+			selectionItem{id: "spectrum", value: "Spectrum · gradient bars and falling peaks"},
+			selectionItem{id: "mirror", value: "Mirror · symmetric spectrum"},
+			selectionItem{id: "off", value: "Off · compact controls"},
+		}
 	}
 
 	m.selectionList.SetItems(items)
@@ -248,6 +263,10 @@ func (m *SettingsOverlayModel) prepareSelection(id string) {
 		current = string(cfg.DefaultViewMode)
 	case "terminal_video":
 		current = string(cfg.TerminalVideo)
+	case "music_player":
+		current = cfg.MusicPlayer
+	case "music_visualizer":
+		current = cfg.MusicVisualizer
 	}
 
 	for i, it := range items {
@@ -271,6 +290,10 @@ func (m *SettingsOverlayModel) applySetting(setting, value string) {
 		cfg.DefaultViewMode = config.ViewMode(value)
 	case "terminal_video":
 		cfg.TerminalVideo = config.VideoOutput(value)
+	case "music_player":
+		cfg.MusicPlayer = value
+	case "music_visualizer":
+		cfg.MusicVisualizer = value
 	}
 	_ = cfg.Save()
 }

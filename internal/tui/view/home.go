@@ -35,6 +35,18 @@ func NewHomeView(theme tint.Tint) *HomeView {
 
 type homeHubsMsg []components.Hub
 
+func (v *HomeView) CanJumpLetters() bool {
+	target, ok := v.details.View.(ui.LetterJumper)
+	return ok && target.CanJumpLetters()
+}
+
+func (v *HomeView) JumpToLetter(letter string) tea.Cmd {
+	if target, ok := v.details.View.(ui.LetterJumper); ok {
+		return target.JumpToLetter(letter)
+	}
+	return nil
+}
+
 func (v *HomeView) Init() tea.Cmd {
 	return v.fetchHubs
 }
@@ -58,6 +70,11 @@ func (v *HomeView) fetchHubs() tea.Msg {
 }
 
 func (v *HomeView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if posterMsg, ok := msg.(poster.PosterLoadedMsg); ok && v.details.Active() {
+		for _, list := range v.lists {
+			list.Update(posterMsg)
+		}
+	}
 	if v.details.Active() {
 		cmd, handled := v.details.Update(msg)
 		if handled {

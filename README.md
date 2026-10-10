@@ -82,7 +82,22 @@ Movie and TV cover posters automatically use high-resolution images in Kitty
 See the [TUI guide](docs/content/tui.mdx) for configuration and playback details.
 
 Music libraries support artist → album → track navigation. Press **p** to play
-the selected song; playing an artist or album starts its first playable track.
+the selected song in the TUI, with a live spectrum visualizer and no extra
+window. **v** chooses terminal audio or a separate window; **Ctrl+S → Music
+Player** saves the default. Album covers appear in the artist gallery and beside
+the track list. Scrolling automatically loads more artists. Playing an artist or
+album starts its first playable track.
+
+Click the right-hand **A–Z rail**, or press **g then a letter**, to jump through
+movies, TV shows, artists, albums, and track titles. Missing library pages load
+automatically. **Home / End** reach the first/last item; **Page Up / Page Down**
+move by a page. The library footer shows how many items have loaded.
+
+Use **Space** to pause, **[ / ]** to seek, **+ / -** for volume, **m** to mute,
+**z** to cycle spectrum/mirror/off, and **x** to stop. The visualizer measures
+the playing audio and uses ordinary terminal cells, including through tmux and
+SSH. **/** searches Plex for artists, albums, and track names without requiring
+a local index first.
 
 ### CLI (Command Line)
 `plexctl` provides a comprehensive command-line interface for automation and quick tasks. Every command supports the `-h` or `--help` flag for detailed usage instructions.

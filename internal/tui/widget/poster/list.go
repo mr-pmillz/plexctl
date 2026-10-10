@@ -86,7 +86,8 @@ func (m *PosterList) fetchVisible() tea.Cmd {
 	end := min(m.Offset+cols+2, len(m.Items))
 
 	for i := start; i < end; i++ {
-		if m.Items[i].Loading {
+		if m.Items[i].Loading && !m.Items[i].Fetching {
+			m.Items[i].Fetching = true
 			cmds = append(cmds, FetchPoster(m.ID, i, m.Items[i].Metadata))
 		}
 	}
@@ -97,8 +98,12 @@ func (m *PosterList) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case PosterLoadedMsg:
 		if msg.ListID == m.ID && msg.Index >= 0 && msg.Index < len(m.Items) {
+			if msg.RatingKey != ui.PtrToString(m.Items[msg.Index].Metadata.RatingKey) {
+				return m, nil
+			}
 			m.Items[msg.Index].Poster = msg.View
 			m.Items[msg.Index].Loading = false
+			m.Items[msg.Index].Fetching = false
 		}
 		return m, nil
 	case tea.WindowSizeMsg:

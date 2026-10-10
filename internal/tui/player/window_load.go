@@ -20,10 +20,7 @@ func loadWindowMedia(socket, url string, startOffset int64) error {
 	}
 	request := map[string]any{
 		"request_id": 1,
-		"command": map[string]any{
-			"name": "loadfile", "url": url, "flags": "replace",
-			"options": map[string]string{"start": fmt.Sprintf("%.3f", float64(startOffset)/1000)},
-		},
+		"command":    mediaLoadCommand(url, startOffset, false),
 	}
 	if err := json.NewEncoder(conn).Encode(request); err != nil {
 		return fmt.Errorf("send playback command: %w", err)
@@ -45,4 +42,16 @@ func loadWindowMedia(socket, url string, startOffset int64) error {
 		}
 		return nil
 	}
+}
+
+func mediaLoadCommand(url string, startOffset int64, audioOnly bool) map[string]any {
+	options := map[string]string{
+		"start": fmt.Sprintf("%.3f", float64(startOffset)/1000),
+		"vid":   "auto", "force-window": "yes",
+	}
+	if audioOnly {
+		options["vid"] = "no"
+		options["force-window"] = "no"
+	}
+	return map[string]any{"name": "loadfile", "url": url, "flags": "replace", "options": options}
 }

@@ -50,8 +50,12 @@ type SwitchUserMsg struct {
 type InvalidPinMsg struct{}
 
 type MediaPageMsg struct {
-	Metadata []components.Metadata
-	Total    int
+	SectionID string
+	RequestID uint64
+	Start     int
+	Metadata  []components.Metadata
+	Total     int
+	Err       error
 }
 
 type RootChecker interface {

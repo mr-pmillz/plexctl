@@ -10,14 +10,15 @@ import (
 )
 
 type DetailBase struct {
-	RatingKey string
-	Metadata  *components.Metadata
-	Poster    string
-	Width     int
-	Height    int
-	Theme     tint.Tint
-	Err       error
-	Loading   bool
+	RatingKey   string
+	Metadata    *components.Metadata
+	Poster      string
+	posterWidth int
+	Width       int
+	Height      int
+	Theme       tint.Tint
+	Err         error
+	Loading     bool
 
 	SynopsisVP viewport.Model
 }
@@ -58,8 +59,12 @@ func (b *DetailBase) Update(msg tea.Msg) tea.Cmd {
 		b.Metadata = msg.metadata
 		b.UpdateLayout()
 		cmds = append(cmds, fetchPoster(b.Metadata, b.Width))
-	case posterDataMsg:
-		b.Poster = string(msg)
+	case PosterDataMsg:
+		if msg.ratingKey != b.RatingKey || msg.width != detailPosterWidth(b.Metadata) {
+			return nil
+		}
+		b.Poster = msg.view
+		b.posterWidth = msg.width
 		b.UpdateLayout()
 	case error:
 		b.Loading = false

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"image"
 	"strings"
+	"time"
 
 	_ "image/jpeg"
 	_ "image/png"
@@ -23,12 +24,14 @@ type PosterItem struct {
 	Metadata components.Metadata
 	Poster   string
 	Loading  bool
+	Fetching bool
 }
 
 type PosterLoadedMsg struct {
-	ListID int
-	Index  int
-	View   string
+	ListID    int
+	Index     int
+	View      string
+	RatingKey string
 }
 
 type ItemSelectedMsg struct {
@@ -42,10 +45,11 @@ func FetchPoster(listID int, index int, metadata components.Metadata) tea.Cmd {
 		if metadata.RatingKey != nil {
 			rk = *metadata.RatingKey
 		}
+		result := PosterLoadedMsg{ListID: listID, Index: index, RatingKey: rk}
 
 		if rk != "" {
 			if cached, ok := artwork.Cached(rk, ui.PosterWidth); ok {
-				return PosterLoadedMsg{ListID: listID, Index: index, View: cached}
+				return PosterLoadedMsg{ListID: listID, Index: index, RatingKey: rk, View: cached}
 			}
 		}
 
@@ -57,27 +61,39 @@ func FetchPoster(listID int, index int, metadata components.Metadata) tea.Cmd {
 		} else if metadata.Thumb != nil {
 			path = *metadata.Thumb
 		}
-
-		if path == "" {
-			return nil
+		if (metadata.Type == "artist" || metadata.Type == "album") && metadata.Thumb != nil {
+			path = *metadata.Thumb
+		}
+		if metadata.Type == "track" && metadata.ParentThumb != nil {
+			path = *metadata.ParentThumb
 		}
 
-		data, err := plex.GetImage(context.Background(), path)
+		if path == "" {
+			return result
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		data, err := plex.GetImage(ctx, path)
 		if err != nil {
-			return nil
+			return result
 		}
 
 		img, _, err := image.Decode(bytes.NewReader(data))
 		if err != nil {
-			return nil
+			return result
 		}
 
-		imgStr, err := artwork.Render(rk, img, ui.PosterWidth, ui.PosterHeight)
+		height := ui.PosterHeight
+		if metadata.Type == "album" || metadata.Type == "track" {
+			height = min(height, max(1, (ui.PosterWidth*img.Bounds().Dy()/img.Bounds().Dx()+1)/2))
+		}
+		imgStr, err := artwork.Render(rk, img, ui.PosterWidth, height)
 		if err != nil {
-			return nil
+			return result
 		}
 
-		return PosterLoadedMsg{ListID: listID, Index: index, View: imgStr}
+		return PosterLoadedMsg{ListID: listID, Index: index, RatingKey: rk, View: imgStr}
 	}
 }
 
@@ -121,7 +137,9 @@ func RenderPosterItem(item *PosterItem, isSelected bool, active bool, theme tint
 	}
 
 	watched := ""
-	if !isSelected || !active {
+	if item.Metadata.Type == "album" && item.Metadata.Year != nil {
+		watched = lipgloss.NewStyle().Foreground(theme.BrightBlack()).Render(fmt.Sprint(*item.Metadata.Year))
+	} else if !isSelected || !active {
 		watched = RenderMiniWatched(&item.Metadata, theme)
 	}
 

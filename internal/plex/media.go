@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	neturl "net/url"
 	"strings"
 	"time"
 
@@ -131,8 +132,11 @@ func GetChildren(ctx context.Context, ratingKey string) ([]components.Metadata, 
 	if strings.Contains(url, "?") {
 		separator = "&"
 	}
-	url = fmt.Sprintf("%s%sX-Plex-Token=%s", url, separator, cfg.Token)
-	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+	url = fmt.Sprintf("%s%sX-Plex-Token=%s", url, separator, neturl.QueryEscape(cfg.ServerToken()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
@@ -186,8 +190,12 @@ func GetImage(ctx context.Context, path string) ([]byte, error) {
 	if strings.Contains(url, "?") {
 		separator = "&"
 	}
-	url = fmt.Sprintf("%s%sX-Plex-Token=%s", url, separator, cfg.Token)
-	resp, err := http.Get(url)
+	url = fmt.Sprintf("%s%sX-Plex-Token=%s", url, separator, neturl.QueryEscape(cfg.ServerToken()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

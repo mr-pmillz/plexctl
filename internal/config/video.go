@@ -11,6 +11,8 @@ const (
 	VideoKitty  VideoOutput = "kitty"
 	VideoSixel  VideoOutput = "sixel"
 	VideoTCT    VideoOutput = "tct"
+	// AudioTerminal keeps the TUI active and disables mpv's video window.
+	AudioTerminal VideoOutput = "audio"
 )
 
 // ParseTerminalVideo validates a terminal renderer preference.

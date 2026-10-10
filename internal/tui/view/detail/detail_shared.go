@@ -29,7 +29,11 @@ type detailDataMsg struct {
 	children []components.Metadata
 }
 
-type posterDataMsg string
+type PosterDataMsg struct {
+	ratingKey string
+	width     int
+	view      string
+}
 
 type BackToLibraryMsg struct{}
 
@@ -51,9 +55,26 @@ func (i metadataItem) FilterValue() string { return i.metadata.Title }
 
 // Shared Helpers
 
+func detailPosterWidth(metadata *components.Metadata) int {
+	if metadata != nil && (metadata.Type == "album" || metadata.Type == "track") {
+		layout := ui.GetLayout()
+		// Leave room for track titles beside the cover and shrink with the player.
+		return max(6, min(ui.DetailPosterWidth, (layout.InnerWidth()-8)/3, (layout.ContentHeight()-10)*2))
+	}
+	return ui.DetailPosterWidth
+}
+
 func fetchPoster(metadata *components.Metadata, width int) tea.Cmd {
+	targetWidth := detailPosterWidth(metadata)
 	return func() tea.Msg {
-		if metadata == nil || metadata.Thumb == nil {
+		if metadata == nil {
+			return nil
+		}
+		path := ui.PtrToString(metadata.Thumb)
+		if metadata.Type == "track" && metadata.ParentThumb != nil {
+			path = *metadata.ParentThumb
+		}
+		if path == "" {
 			return nil
 		}
 
@@ -62,19 +83,19 @@ func fetchPoster(metadata *components.Metadata, width int) tea.Cmd {
 			rk = *metadata.RatingKey
 		}
 
-		targetWidth := ui.DetailPosterWidth
-
 		slog.Debug("fetchPoster start", "title", metadata.Title, "ratingKey", rk, "width", targetWidth)
 
 		// Check long-term cache for rendered string
 		if rk != "" {
 			if cached, ok := artwork.Cached(rk, targetWidth); ok {
-				return posterDataMsg(cached)
+				return PosterDataMsg{ratingKey: rk, width: targetWidth, view: cached}
 			}
 		}
 
 		start := time.Now()
-		data, err := plex.GetImage(context.Background(), *metadata.Thumb)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		data, err := plex.GetImage(ctx, path)
 		if err != nil {
 			slog.Error("fetchPoster image fetch failed", "error", err)
 			return nil
@@ -95,7 +116,7 @@ func fetchPoster(metadata *components.Metadata, width int) tea.Cmd {
 		}
 		slog.Debug("fetchPoster render complete", "duration", time.Since(start))
 
-		return posterDataMsg(imgStr)
+		return PosterDataMsg{ratingKey: rk, width: targetWidth, view: imgStr}
 	}
 }
 

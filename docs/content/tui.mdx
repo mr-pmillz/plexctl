@@ -33,8 +33,8 @@ mpv's Space, Right/Left, and q bindings, including any custom bindings you set.
 
 - **`u`**: Switch User (Plex Home).
 - **`p`**: Play selected item.
-- **`v`**: Choose terminal playback: Automatic, Kitty, Sixel, or Text.
-- **`ctrl+p`**: Stream the selected item in the terminal (Kitty, Sixel, or TCT).
+- **`v`**: Choose a player: terminal/window for music; Automatic, Kitty, Sixel, or Text for video.
+- **`ctrl+p`**: Play music in the TUI or stream video with the saved terminal renderer.
 - **`/`**: Open global fuzzy search.
 - **`ctrl+l`**: Open library configuration (show/hide/icon picker).
 - **`ctrl+s`**: Open global settings (theme/icon type).
@@ -46,7 +46,15 @@ mpv's Space, Right/Left, and q bindings, including any custom bindings you set.
 ## Features
 
 ### Fuzzy Search
-Pressing `/` opens a global fuzzy search overlay. It searches across all indexed libraries for titles, actors, and directors. Results are updated instantly as you type.
+Press `/` to search artists, albums, tracks, movies, and TV. Local fuzzy matches
+appear immediately; Plex server results follow as you type. Server search covers
+the entire library, including artists you have not scrolled to, and works without
+building a local index. Track results include their artist and album so you can
+distinguish songs with the same name. Click a result or press Enter to open it.
+
+The optional local index also includes all music artists, albums, and tracks.
+Rebuild an existing index from Search → Status → `r`, or run
+`plexctl search reindex`, to make these available to `plexctl search find`.
 
 ### Library Configuration
 Pressing `ctrl+l` opens the configuration manager. Here you can:
@@ -60,6 +68,54 @@ Music libraries open **artists → albums → tracks**. Click an item or press
 **Enter** to browse, then press **`p`** to play the selected track. Playing an
 artist or album directly starts its first playable track; open the album to
 choose another song. **Esc** or right click returns to the previous level.
+
+The artist page displays a grid of album covers with titles and years. Album
+art also appears beside the track list after selecting an album. It uses native
+high-resolution images in Kitty and text images elsewhere, and resizes with the pane.
+Library scrolling loads additional artists automatically with either the mouse
+wheel or keyboard, in both poster and list views. A failed page can be retried
+with `r` without discarding the artists already loaded.
+
+Click the **A–Z rail** on the right, or press **`g` then a letter**, to jump through
+movies, TV shows, music artists, an artist's albums, or album tracks. **`#`** jumps
+to numbers and other characters. Plex sort titles are respected; accented Latin
+names share their base letter. Albums are alphabetical; tracks retain album order
+and jump by song title. The rail folds into columns in shorter panes.
+
+Library jumps fetch missing pages automatically and show the loaded/total count.
+Press **Esc** to cancel a pending jump, **Home** for the first item, **End** for the
+last item (loading remaining pages), or **Page Up / Page Down** to move by a page.
+Fetched pages stay available for subsequent jumps while the TUI is open.
+
+Music plays in the current TUI by default, without opening an mpv window, even
+when the file contains embedded cover art. You can keep browsing or searching
+while listening. Press **`v`** to choose **In this terminal** or **Separate player
+window**. **Ctrl+P** always chooses terminal music; **Ctrl+S → Music Player** saves
+the default (`music_player: terminal` or `window` in the configuration).
+
+The music player includes a 16-band audio spectrum with a color gradient, smooth
+attack and release, falling peaks, and stereo level meters. These are measured
+from the audio being decoded by mpv. Pause and silence settle the display; seeking
+updates the spectrum to the new audio position. It uses ordinary Unicode cells
+and terminal colors, so it also works in tmux and over SSH without Kitty/Sixel,
+desktop audio capture, or an extra visualizer program. Audio plays on the host
+running mpv. The analysis uses stereo output; mpv downmixes multichannel music.
+
+| Control | Action |
+| --- | --- |
+| Space, or click the visualizer/title | Pause/resume |
+| `[` / `]` | Seek backward/forward 10 seconds |
+| Click the progress bar | Seek to that position |
+| Wheel over the player | Seek |
+| `+` / `-`, or Shift+wheel over the player | Adjust volume |
+| `m` | Mute/unmute |
+| `z` | Cycle spectrum, mirror, and compact controls |
+| `x` | Stop |
+
+The visualizer shrinks with the terminal and can be disabled under **Ctrl+S →
+Music Visualizer** (`music_visualizer: spectrum`, `mirror`, or `off`). It requires
+mpv's FFmpeg/lavfi audio filters; music playback remains available in builds
+without those filters. Terminal music stops when you quit the TUI.
 
 When playback is started, a playback bar appears at the bottom showing:
 - Current progress and duration.
@@ -111,8 +167,8 @@ plexctl play 12345 --terminal-video sixel --no-resume
 ```
 
 The preference is stored as `terminal_video` in `~/.plexctl.yaml` and can also be
-set with `PLEXCTL_TERMINAL_VIDEO`. Plain `p` and `plexctl play 12345` still open a
-video window. The existing `plexctl play 12345 --tct` explicitly selects TCT.
+set with `PLEXCTL_TERMINAL_VIDEO`. Plain `p` on a video and `plexctl play 12345`
+open a video window. The existing `plexctl play 12345 --tct` explicitly selects TCT.
 
 Kitty output uses escape-code transport, so it does not require shared memory
 with the terminal when using SSH. With tmux 3.3+, plexctl temporarily enables
@@ -129,7 +185,7 @@ for terminal requirements and configuration.
 ### High-resolution cover posters
 
 In Kitty 0.28+, using Unicode image placeholders, movie
-and TV posters automatically use native images, retaining up to 768 pixels on
+and TV posters and album covers automatically use native images, retaining up to 768 pixels on
 their longest side instead of reducing the cover to 15 colored text cells.
 This works in grids, details, and through tmux. Posters scroll and clip with the
 TUI and are restored after video playback. Other terminals retain text posters.

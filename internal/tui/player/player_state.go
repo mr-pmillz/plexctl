@@ -3,13 +3,17 @@ package player
 import "github.com/LukeHagar/plexgo/models/operations"
 
 type PlayerStatus struct {
-	Time     float64
-	Duration float64
-	Title    string
-	File     string
-	Key      string
-	State    operations.State
-	NoReport bool
+	Time      float64
+	Duration  float64
+	Title     string
+	File      string
+	Key       string
+	State     operations.State
+	NoReport  bool
+	AudioOnly bool
+	Volume    float64
+	Muted     bool
+	Spectrum  Spectrum
 }
 
 type ExternalSubtitle struct {
