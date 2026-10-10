@@ -107,7 +107,7 @@ func (m *PosterList) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.WindowSizeMsg:
-		return m, m.fetchVisible()
+		return m, m.fixScroll()
 	}
 
 	if !m.Active {

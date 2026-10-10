@@ -265,7 +265,8 @@ func (c *Controller) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return c, c.navigator.Push(settings.NewSettingsOverlayModel(c.theme))
 		case "L":
 			return c, c.navigator.Push(tuiconfig.NewConfigOverlayModel(c.data.Libraries))
-		case "h":
+		case "H":
+			c.focusPane(paneContent)
 			return c, c.tabManager.SetActive(0)
 		case "p", "ctrl+p", "v":
 			output := config.VideoWindow
@@ -532,7 +533,7 @@ func (c *Controller) showHelp() tea.Cmd {
 		{Key: "j / k, enter", Desc: "In navigation: select a library, then open it"},
 		{Key: "g, then A–Z / #", Desc: "Jump to a letter (or click the right-hand alphabet)"},
 		{Key: "Home / End / PgUp / PgDn", Desc: "First / last item / previous / next page"},
-		{Key: "h", Desc: "Home"},
+		{Key: "H", Desc: "Home"},
 		{Key: "ctrl+s", Desc: "Global Settings"},
 		{Key: "L", Desc: "Libraries"},
 		{Key: "u", Desc: "Switch User"},

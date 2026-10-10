@@ -4,13 +4,74 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LukeHagar/plexgo/models/components"
 	"github.com/LukeHagar/plexgo/models/operations"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ygelfand/plexctl/internal/tui/player"
 	"github.com/ygelfand/plexctl/internal/tui/view"
+	"github.com/ygelfand/plexctl/internal/tui/widget/poster"
 	"github.com/ygelfand/plexctl/internal/ui"
 	"go.dalton.dog/bubbleup"
 )
+
+func TestPosterNavigationKeysReachContent(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		tab  int
+	}{
+		{name: "home", tab: 0},
+		{name: "movies", tab: 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			c := focusController()
+			c.alert = *bubbleup.NewAlertModel(40, true, time.Second)
+			c.tabManager.SetActive(tt.tab)
+			grid := poster.NewPosterGrid(make([]components.Metadata, 12), ui.PlexctlTheme)
+			grid.SetSize(3*ui.PosterStepWidth, 2*ui.PosterTotalHeight)
+			grid.SetCursor(1)
+			c.tabManager.tabModels[tt.tab] = grid
+			for _, step := range []struct {
+				key  string
+				want int
+			}{
+				{key: "l", want: 2}, {key: "h", want: 1},
+				{key: "j", want: 4}, {key: "down", want: 7},
+				{key: "k", want: 4}, {key: "up", want: 1},
+				{key: "left", want: 0}, {key: "right", want: 1},
+				{key: "h", want: 0}, {key: "h", want: 0},
+			} {
+				c.Update(ui.KeyPress(step.key))
+				if grid.Cursor != step.want || c.tabManager.activeTabIdx != tt.tab {
+					t.Fatalf("%s selected poster %d in tab %d; want poster %d in tab %d",
+						step.key, grid.Cursor, c.tabManager.activeTabIdx, step.want, tt.tab)
+				}
+			}
+		})
+	}
+}
+
+func TestHomeShortcutFocusesHome(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		focus paneFocus
+	}{
+		{name: "content", focus: paneContent},
+		{name: "sidebar", focus: paneSidebar},
+		{name: "player", focus: panePlayer},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			c := focusController()
+			c.alert = *bubbleup.NewAlertModel(40, true, time.Second)
+			c.playerStatus = player.PlayerStatus{State: operations.StatePlaying}
+			c.tabManager.SetActive(1)
+			c.focusPane(tt.focus)
+			c.Update(ui.KeyPress("H"))
+			if c.tabManager.activeTabIdx != 0 || c.focus != paneContent {
+				t.Fatal("H did not open Home and focus its content")
+			}
+		})
+	}
+}
 
 func TestRightClickNavigatesBackFromAnotherPane(t *testing.T) {
 	for _, tt := range []struct {

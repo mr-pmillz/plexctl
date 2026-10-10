@@ -196,21 +196,11 @@ func (v *HomeView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "up", "k":
-			if v.activeList > 0 {
-				v.lists[v.activeList].Active = false
-				v.activeList--
-				v.lists[v.activeList].Active = true
-				v.syncViewport()
-				shouldRedraw = true
-			}
+			cmds = append(cmds, v.moveList(-1))
+			shouldRedraw = true
 		case "down", "j":
-			if v.activeList < len(v.lists)-1 {
-				v.lists[v.activeList].Active = false
-				v.activeList++
-				v.lists[v.activeList].Active = true
-				v.syncViewport()
-				shouldRedraw = true
-			}
+			cmds = append(cmds, v.moveList(1))
+			shouldRedraw = true
 		case "left", "h", "right", "l":
 			shouldRedraw = true
 		case "r":
@@ -230,6 +220,26 @@ func (v *HomeView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return v, tea.Batch(cmds...)
+}
+
+func (v *HomeView) moveList(delta int) tea.Cmd {
+	next := v.activeList + delta
+	if next < 0 || next >= len(v.lists) {
+		return nil
+	}
+
+	current := v.lists[v.activeList]
+	column := current.Cursor - current.Offset
+	current.Active = false
+	v.activeList = next
+	target := v.lists[next]
+	target.Active = true
+	// Each row scrolls independently. Follow the visible column, clamping to
+	// the nearest poster when the destination row has fewer items.
+	target.Cursor = min(target.Offset+column, len(target.Items)-1)
+	cmd := target.Sync()
+	v.syncViewport()
+	return cmd
 }
 
 func (v *HomeView) syncViewport() {
@@ -299,8 +309,8 @@ func (v *HomeView) HelpKeys() []ui.HelpKey {
 		}
 	}
 	return []ui.HelpKey{
-		{Key: "↑/↓", Desc: "Switch Section"},
-		{Key: "←/→", Desc: "Browse Items"},
+		{Key: "j/k, ↓/↑", Desc: "Switch rows in the same column"},
+		{Key: "h/l, ←/→", Desc: "Browse Items"},
 		{Key: "enter", Desc: "View Details"},
 	}
 }
