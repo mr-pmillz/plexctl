@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math/rand/v2"
 	"net"
 	"os"
@@ -131,7 +132,11 @@ func (p *terminalPlayback) Run() error {
 	if err != nil {
 		return fmt.Errorf("create terminal player socket directory: %w", err)
 	}
-	defer os.RemoveAll(dir)
+	defer func() {
+		if err := os.RemoveAll(dir); err != nil {
+			slog.Warn("Remove terminal player socket directory", "error", err)
+		}
+	}()
 	socket := filepath.Join(dir, "ipc")
 	if runtime.GOOS == "windows" {
 		socket = `\\.\pipe\` + filepath.Base(dir)
@@ -216,7 +221,6 @@ func (p *terminalPlayback) Run() error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	events := make(chan terminalEvent, 64)
@@ -227,7 +231,9 @@ func (p *terminalPlayback) Run() error {
 	}()
 	defer func() {
 		cancel()
-		_ = conn.Close()
+		if err := conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			slog.Debug("Close terminal player connection", "error", err)
+		}
 		<-readerDone
 	}()
 

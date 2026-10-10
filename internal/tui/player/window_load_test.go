@@ -18,21 +18,34 @@ func TestWindowLoadNamedArguments(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer os.RemoveAll(dir)
+			t.Cleanup(func() {
+				if err := os.RemoveAll(dir); err != nil {
+					t.Error(err)
+				}
+			})
 			path := filepath.Join(dir, "ipc")
 			listener, err := net.Listen("unix", path)
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer listener.Close()
+			t.Cleanup(func() {
+				if err := listener.Close(); err != nil {
+					t.Error(err)
+				}
+			})
 			done := make(chan error, 1)
 			go func() {
+				defer close(done)
 				conn, err := listener.Accept()
 				if err != nil {
 					done <- err
 					return
 				}
-				defer conn.Close()
+				defer func() {
+					if err := conn.Close(); err != nil {
+						done <- err
+					}
+				}()
 				var request struct {
 					Command map[string]any `json:"command"`
 				}
@@ -47,14 +60,19 @@ func TestWindowLoadNamedArguments(t *testing.T) {
 					return
 				}
 				encoder := json.NewEncoder(conn)
-				_ = encoder.Encode(map[string]any{"event": "start-file"})
+				if err := encoder.Encode(map[string]any{"event": "start-file"}); err != nil {
+					done <- err
+					return
+				}
 				done <- encoder.Encode(map[string]any{"request_id": 1, "error": result})
 			}()
 			if err := loadWindowMedia(path, "https://plex.invalid/music.flac", 12345); (err != nil) != (result != "success") {
 				t.Errorf("loadWindowMedia returned %v for %s", err, result)
 			}
-			if err := <-done; err != nil {
-				t.Fatal(err)
+			for err := range done {
+				if err != nil {
+					t.Error(err)
+				}
 			}
 		})
 	}

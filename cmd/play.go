@@ -89,7 +89,9 @@ var playCmd = &cobra.Command{
 			title = title + "(Trailer)"
 		}
 		pm := player.GetPlayerManager()
-		fmt.Fprintf(cmd.OutOrStdout(), "Playing %s. Press Ctrl+C to stop.\n", title)
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Playing %s. Press Ctrl+C to stop.\n", title); err != nil {
+			return fmt.Errorf("write playback status: %w", err)
+		}
 
 		// Wait loop for CLI to keep progress reporting alive
 		for pm.VerifyConnection() {

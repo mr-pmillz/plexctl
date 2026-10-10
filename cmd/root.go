@@ -40,8 +40,7 @@ var rootCmd = &cobra.Command{
 		if config.Get().DefaultToTui {
 			return runTUI()
 		}
-		cmd.Help()
-		return nil
+		return cmd.Help()
 	},
 }
 
@@ -68,19 +67,19 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.plexctl.yaml)")
 	rootCmd.PersistentFlags().StringVarP(&outputType, "output", "o", "table", "Output format (table, json, json-pretty, yaml, csv, txt)")
 	rootCmd.PersistentFlags().CountP("verbose", "v", "increase verbosity")
-	viper.BindPFlag("verbose", rootCmd.PersistentFlags().Lookup("verbose"))
+	cobra.CheckErr(viper.BindPFlag("verbose", rootCmd.PersistentFlags().Lookup("verbose")))
 
 	rootCmd.PersistentFlags().BoolVar(&noCache, "no-cache", false, "Disable caching")
-	viper.BindPFlag("no_cache", rootCmd.PersistentFlags().Lookup("no-cache"))
+	cobra.CheckErr(viper.BindPFlag("no_cache", rootCmd.PersistentFlags().Lookup("no-cache")))
 
 	rootCmd.PersistentFlags().StringVar(&sortCol, "sort", "", "column to sort by")
-	viper.BindPFlag("sort", rootCmd.PersistentFlags().Lookup("sort"))
+	cobra.CheckErr(viper.BindPFlag("sort", rootCmd.PersistentFlags().Lookup("sort")))
 	rootCmd.PersistentFlags().String("terminal-video", "auto", "Terminal video renderer for Ctrl+P or play (auto, kitty, sixel, tct)")
-	viper.BindPFlag("terminal_video", rootCmd.PersistentFlags().Lookup("terminal-video"))
+	cobra.CheckErr(viper.BindPFlag("terminal_video", rootCmd.PersistentFlags().Lookup("terminal-video")))
 	playCmd.MarkFlagsMutuallyExclusive("tct", "terminal-video")
-	rootCmd.RegisterFlagCompletionFunc("terminal-video", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+	cobra.CheckErr(rootCmd.RegisterFlagCompletionFunc("terminal-video", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 		return []string{"auto", "kitty", "sixel", "tct"}, cobra.ShellCompDirectiveNoFileComp
-	})
+	}))
 }
 
 func initConfig() {
@@ -107,7 +106,7 @@ func initConfig() {
 	viper.SetEnvPrefix("PLEXCTL")
 
 	// Explicitly bind env vars that don't have corresponding flags
-	viper.BindEnv("token")
+	cobra.CheckErr(viper.BindEnv("token"))
 
 	if err := viper.ReadInConfig(); err == nil {
 		cfg.ConfigPath = viper.ConfigFileUsed()

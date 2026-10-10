@@ -192,12 +192,20 @@ func TestTerminalMPVHelper(t *testing.T) {
 	if err != nil {
 		os.Exit(12)
 	}
-	defer listener.Close()
+	t.Cleanup(func() {
+		if err := listener.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 	conn, err := listener.Accept()
 	if err != nil {
 		os.Exit(13)
 	}
-	defer conn.Close()
+	t.Cleanup(func() {
+		if err := conn.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 	decoder := json.NewDecoder(conn)
 	encoder := json.NewEncoder(conn)
 	for {

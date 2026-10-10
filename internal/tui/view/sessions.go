@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 
 	"github.com/LukeHagar/plexgo/models/operations"
 	"github.com/charmbracelet/bubbles/table"
@@ -73,7 +74,11 @@ func (t *SessionsTab) fetchSessions() tea.Msg {
 		return err
 	}
 
-	defer res.RawResponse.Body.Close()
+	defer func() {
+		if err := res.RawResponse.Body.Close(); err != nil {
+			slog.Debug("Close sessions response", "error", err)
+		}
+	}()
 	body, err := io.ReadAll(res.RawResponse.Body)
 	if err != nil {
 		return err

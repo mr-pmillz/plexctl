@@ -254,10 +254,11 @@ func (v *MusicDetailView) View() string {
 	v.listRect = ui.Rect{}
 	v.rail = ui.AlphabetRail{}
 	footer := "[p] Play | [v] Player | [esc] Back"
-	if v.Metadata.Type == "track" {
+	switch v.Metadata.Type {
+	case "track":
 		header += "\n\n" + renderBadges(v.Metadata, v.Theme)
 		header = v.RenderPosterAndInfo(header)
-	} else if v.Metadata.Type == "artist" {
+	case "artist":
 		rect := ui.Rect{X: 2, Y: 2 + lipgloss.Height(header), Width: width}
 		rect.Height = max(1, ui.GetLayout().ContentHeight()-rect.Y-3)
 		v.rail = ui.NewAlphabetRail(2+width, rect.Y, rect.Height)
@@ -274,7 +275,7 @@ func (v *MusicDetailView) View() string {
 			lipgloss.NewStyle().Width(rect.Width).MaxWidth(rect.Width).Render(v.albums.View()),
 			v.rail.View(active, v.Theme))
 		footer = "[g] A–Z | [p] Play | [v] Player | [esc] Back"
-	} else {
+	default:
 		v.listRect = ui.Rect{X: 2, Y: 2 + lipgloss.Height(header), Width: width}
 		v.listRect.Height = max(4, ui.GetLayout().ContentHeight()-v.listRect.Y-3)
 		v.rail = ui.NewAlphabetRail(2+width, v.listRect.Y, v.listRect.Height)

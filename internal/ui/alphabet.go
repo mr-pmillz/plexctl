@@ -87,11 +87,9 @@ func AlphabetTitle(meta components.Metadata) string {
 }
 
 func AlphabetLetter(meta components.Metadata) string {
-	for _, r := range AlphabetTitle(meta) {
-		if r >= 'A' && r <= 'Z' {
-			return string(r)
-		}
-		return "#"
+	title := AlphabetTitle(meta)
+	if len(title) > 0 && title[0] >= 'A' && title[0] <= 'Z' {
+		return title[:1]
 	}
 	return "#"
 }

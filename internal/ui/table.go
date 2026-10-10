@@ -38,7 +38,7 @@ type Table struct {
 
 func (t *Table) syncScroll() {
 	if t.Cursor() >= len(t.Rows()) {
-		t.Model.SetCursor(max(0, len(t.Rows())-1))
+		t.SetCursor(max(0, len(t.Rows())-1))
 	}
 	height := max(1, t.Height())
 	t.first = min(t.first, max(0, len(t.Rows())-height))

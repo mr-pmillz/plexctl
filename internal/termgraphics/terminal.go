@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"regexp"
@@ -199,7 +200,11 @@ func Probe(input *os.File, output io.Writer) Capabilities {
 	if err != nil {
 		return Current()
 	}
-	defer term.Restore(int(input.Fd()), state)
+	defer func() {
+		if err := term.Restore(int(input.Fd()), state); err != nil {
+			slog.Warn("Restore terminal after graphics probe", "error", err)
+		}
+	}()
 	r, err := cancelreader.NewReader(input)
 	if err != nil {
 		return Current()

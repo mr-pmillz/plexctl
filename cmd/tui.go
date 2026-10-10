@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -28,7 +29,7 @@ var tuiCmd = &cobra.Command{
 	},
 }
 
-func runTUI() error {
+func runTUI() (runErr error) {
 	config.IsTUI = true
 	cfg := config.Get()
 	// Always log TUI sessions to a file for easier debugging
@@ -54,7 +55,11 @@ func runTUI() error {
 	if err != nil {
 		return fmt.Errorf("initialize poster graphics: %w", err)
 	}
-	defer output.Close()
+	defer func() {
+		if err := output.Close(); err != nil {
+			runErr = errors.Join(runErr, fmt.Errorf("close poster graphics: %w", err))
+		}
+	}()
 
 	slog.Debug("TUI: Showing standalone splash")
 	tui.ShowStandaloneSplash(1*time.Second, resultChan)

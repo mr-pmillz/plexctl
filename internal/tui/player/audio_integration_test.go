@@ -70,7 +70,11 @@ func TestAudioPlaybackAndSpectrum(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(dir)
+	t.Cleanup(func() {
+		if err := os.RemoveAll(dir); err != nil {
+			t.Error(err)
+		}
+	})
 	media := testAudio(t, dir)
 	socket := filepath.Join(dir, "ipc")
 	cmd := exec.Command(mpv, "--no-config", "--ao=null", "--idle=yes", "--vid=no",

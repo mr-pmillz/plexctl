@@ -319,7 +319,7 @@ func (p *IconPicker) searchView() string {
 				prefix = "> "
 				b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("62")).Render(fmt.Sprintf("%s %s %s", prefix, e.Char, e.Name)) + "\n")
 			} else {
-				b.WriteString(fmt.Sprintf("%s %s %s\n", prefix, e.Char, e.Name))
+				fmt.Fprintf(&b, "%s %s %s\n", prefix, e.Char, e.Name)
 			}
 		}
 	}

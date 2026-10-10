@@ -23,12 +23,20 @@ func TestNativePosterLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	t.Cleanup(func() {
+		if err := f.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 	w, err := Open(f, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer w.Close()
+	t.Cleanup(func() {
+		if err := w.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 	view, err := Render("test", image.NewRGBA(image.Rect(0, 0, 600, 900)), 15, 10)
 	if err != nil {
 		t.Fatal(err)
@@ -62,17 +70,29 @@ func TestNativePosterLifecycle(t *testing.T) {
 	if dimensions.Width != 512 || dimensions.Height != 768 {
 		t.Fatalf("poster lost image detail: %+v", dimensions)
 	}
-	before, _ := f.Stat()
-	w.Write([]byte(frame))
-	after, _ := f.Stat()
-	if after.Size()-before.Size() != int64(len(frame)) {
+	size := func() int64 {
+		t.Helper()
+		info, err := f.Stat()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return info.Size()
+	}
+	before := size()
+	if _, err := w.Write([]byte(frame)); err != nil {
+		t.Fatal(err)
+	}
+	if size()-before != int64(len(frame)) {
 		t.Fatal("poster uploaded again without a change")
 	}
-	w.Write([]byte("\x1b[?1049l"))
-	before, _ = f.Stat()
-	w.Write([]byte(frame))
-	after, _ = f.Stat()
-	if after.Size()-before.Size() <= int64(len(frame)) {
+	if _, err := w.Write([]byte("\x1b[?1049l")); err != nil {
+		t.Fatal(err)
+	}
+	before = size()
+	if _, err := w.Write([]byte(frame)); err != nil {
+		t.Fatal(err)
+	}
+	if size()-before <= int64(len(frame)) {
 		t.Fatal("poster not reuploaded after returning from playback")
 	}
 	dir := posters.dir

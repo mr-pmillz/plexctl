@@ -3,6 +3,7 @@ package player
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 )
 
@@ -14,7 +15,11 @@ func loadWindowMedia(socket, url string, startOffset int64) error {
 	if err != nil {
 		return fmt.Errorf("connect to mpv for playback: %w", err)
 	}
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			slog.Debug("Close playback command connection", "error", err)
+		}
+	}()
 	if err := conn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
 		return err
 	}

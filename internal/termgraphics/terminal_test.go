@@ -15,12 +15,20 @@ func TestTmuxMustOwnCurrentTerminal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer parent.Close()
+	t.Cleanup(func() {
+		if err := parent.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 	direct, err := os.Create(filepath.Join(dir, "direct-kitty"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer direct.Close()
+	t.Cleanup(func() {
+		if err := direct.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 	if sameTerminal(parent.Name(), direct, direct) {
 		t.Fatal("an inherited TMUX_PANE redirected a new terminal's graphics")
 	}
@@ -74,7 +82,9 @@ func TestTmuxPacketsSplitAcrossWrites(t *testing.T) {
 func TestKittyPlaybackImageOwnership(t *testing.T) {
 	var output bytes.Buffer
 	w := Writer{Output: &output, ImageID: 1073741824}
-	w.Write([]byte("\x1b_Ga=d;\x1b\\\x1b_Ga=T,f=24,s=1,v=1;AAAA\x1b\\"))
+	if _, err := w.Write([]byte("\x1b_Ga=d;\x1b\\\x1b_Ga=T,f=24,s=1,v=1;AAAA\x1b\\")); err != nil {
+		t.Fatal(err)
+	}
 	want := ansi.TmuxPassthrough(DeleteImage(1073741824)) + ansi.TmuxPassthrough("\x1b_Ga=T,f=24,s=1,v=1,i=1073741824;AAAA\x1b\\")
 	if output.String() != want {
 		t.Fatal("video could overwrite or delete other applications' images")
@@ -97,7 +107,9 @@ func TestKittyFramePlacement(t *testing.T) {
 		if output.String() != input {
 			t.Fatalf("split %d: direct graphics were altered", split)
 		}
-		w.Write([]byte("\x1b[0;0H\x1b_Ga=T,f=24,s=400,v=225;AAAA\x1b\\"))
+		if _, err := w.Write([]byte("\x1b[0;0H\x1b_Ga=T,f=24,s=400,v=225;AAAA\x1b\\")); err != nil {
+			t.Fatal(err)
+		}
 		if w.Frame() != (Frame{Width: 400, Height: 225}) {
 			t.Fatal("frame was not updated after resize")
 		}
