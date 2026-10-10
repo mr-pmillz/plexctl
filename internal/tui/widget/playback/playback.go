@@ -122,6 +122,7 @@ func (m *Model) View() string {
 		detected = fmt.Sprintf("%s: text output available. Open Kitty for graphics.", name)
 	}
 	lines = append(lines, "", lipgloss.NewStyle().Width(m.width-4).Render(detected), "",
+		"Kitty: clickable controls, Tab/Enter, h to hide",
 		"Space / click: pause  Arrows / wheel: seek", "Right click / q: return", "", "[enter] Play | [esc] Cancel")
 	if m.music {
 		lines = lines[:3+len(m.choices)]

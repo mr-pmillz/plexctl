@@ -56,6 +56,8 @@ func TestTerminalPlayback(t *testing.T) {
 		{name: "startup-failure", wantErr: true},
 		{name: "load-failure", wantErr: true},
 		{name: "stream-failure", wantErr: true},
+		{name: "controls", wantTime: 120},
+		{name: "controls-failure", wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -232,6 +234,49 @@ func TestTerminalMPVHelper(t *testing.T) {
 		data any
 	}{{3, 120}, {1, 31.5}, {2, true}, {2, false}} {
 		_ = encoder.Encode(map[string]any{"event": "property-change", "id": property.id, "data": property.data})
+	}
+	if strings.HasPrefix(scenario, "controls") {
+		for id, data := range map[int]any{4: 65, 5: true, 6: 1.25, 7: false} {
+			_ = encoder.Encode(map[string]any{"event": "property-change", "id": id, "data": data})
+		}
+		// The geometry is consumed by the real output adapter, without an
+		// emulator. Wait for a live overlay on the same playback IPC connection.
+		fmt.Print("\x1b[3;1H\x1b_Ga=T,f=24,s=960,v=540;AAAA\x1b\\")
+		_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+		for {
+			var request struct {
+				Command   []any `json:"command"`
+				RequestID int   `json:"request_id"`
+			}
+			if decoder.Decode(&request) != nil {
+				os.Exit(16)
+			}
+			if request.Command[0] != "osd-overlay" {
+				continue
+			}
+			if len(request.Command) != 6 || request.Command[2] != "ass-events" {
+				os.Exit(17)
+			}
+			overlay, _ := request.Command[3].(string)
+			for _, label := range []string{"Return", "Muted", "CC off", "1.25x", "0:31 / 2:00"} {
+				if !strings.Contains(overlay, label) {
+					os.Exit(18)
+				}
+			}
+			if strings.Contains(overlay, "secret") {
+				os.Exit(19)
+			}
+			err := "success"
+			if scenario == "controls-failure" {
+				err = "unsupported"
+			}
+			_ = encoder.Encode(map[string]any{"request_id": request.RequestID, "error": err})
+			if scenario == "controls-failure" {
+				_, _ = io.Copy(io.Discard, conn)
+				return
+			}
+			break
+		}
 	}
 	if scenario == "tui" {
 		fmt.Println("video-start")

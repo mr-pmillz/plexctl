@@ -81,6 +81,29 @@ func TestKittyPlaybackImageOwnership(t *testing.T) {
 	}
 }
 
+func TestKittyFramePlacement(t *testing.T) {
+	input := "\x1b[4;12H\x1b_Ga=T,f=24,s=800,v=450,C=1,q=2,m=1;AAAA\x1b\\\x1b_Gm=0;BBBB\x1b\\"
+	for split := 1; split <= len(input); split++ {
+		var output bytes.Buffer
+		w := Writer{Output: &output, Direct: true}
+		for at := 0; at < len(input); at += split {
+			if _, err := w.Write([]byte(input[at:min(at+split, len(input))])); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if w.Frame() != (Frame{X: 11, Y: 3, Width: 800, Height: 450}) {
+			t.Fatalf("split %d: incorrect frame %+v", split, w.Frame())
+		}
+		if output.String() != input {
+			t.Fatalf("split %d: direct graphics were altered", split)
+		}
+		w.Write([]byte("\x1b[0;0H\x1b_Ga=T,f=24,s=400,v=225;AAAA\x1b\\"))
+		if w.Frame() != (Frame{Width: 400, Height: 225}) {
+			t.Fatal("frame was not updated after resize")
+		}
+	}
+}
+
 func TestNativePostersRequireUnicodePlaceholders(t *testing.T) {
 	for _, tt := range []struct {
 		name string

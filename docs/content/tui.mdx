@@ -130,11 +130,23 @@ Press **`v`** on a movie or episode to open the terminal playback menu. Select
 **Kitty graphics**, **Sixel graphics**, **Text**, or **Automatic**. The menu shows
 the detected terminal capabilities. **`ctrl+p`** uses the preference saved in
 Settings. Playback takes over the full terminal; the library view returns when
-the video ends or you press **`q`**. During playback, mpv's keyboard bindings apply:
+the video ends or you press **`q`**.
 
-- **`Space`** or **left click**: Pause or resume.
+Kitty video has a control bar drawn into the image, with elapsed/total time,
+play/pause, **-10s / +10s**, a clickable and draggable timeline, volume,
+mute, subtitle visibility (**CC**), playback speed, and **Return**. The buttons
+and timeline follow the video when you resize the terminal, including through
+tmux and SSH. **Tab / Shift+Tab** select a button and **Enter** activates it.
+Press **`h`** to hide or show the controls. In Kitty, **Esc** also returns to the
+library and **+ / -** adjust volume. Scrolling over the volume controls adjusts
+volume; scrolling elsewhere seeks.
+
+During playback, these shortcuts are available in every terminal renderer:
+
+- **`Space`** or **left click on the picture**: Pause or resume.
 - **`Left` / `Right`** or **wheel**: Seek backward or forward.
 - **`9` / `0`**: Decrease or increase volume.
+- **`m`**: Mute or unmute.
 - **`j`**: Cycle subtitle tracks.
 - **`q`** or **right click**: Stop and return to the library.
 

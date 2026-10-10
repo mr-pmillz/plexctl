@@ -60,31 +60,44 @@ var escapeKeys = map[string]string{
 	"\x1bOA": "UP", "\x1bOB": "DOWN", "\x1bOC": "RIGHT", "\x1bOD": "LEFT",
 	"\x1b[H": "HOME", "\x1b[F": "END", "\x1b[5~": "PGUP", "\x1b[6~": "PGDWN",
 	"\x1b[3~": "DEL", "\x1b[2~": "INS",
+	"\x1b[Z": "Shift+TAB",
+}
+
+type playbackInput struct {
+	Key                   string
+	Mouse                 *playbackMouse
+	CellWidth, CellHeight float64
+}
+
+type playbackMouse struct {
+	Button, X, Y int // SGR button flags and zero-based cell coordinates.
+	Pressed      bool
 }
 
 // playbackKeys preserves incomplete escape/UTF-8 sequences between pipe reads.
-func playbackKeys(input string, flush bool) (keys []string, pending string) {
+func playbackInputs(input string, flush bool) (inputs []playbackInput, pending string) {
+	key := func(s string) { inputs = append(inputs, playbackInput{Key: s}) }
 	for input != "" {
 		if strings.HasPrefix(input, "\x1b[<") {
 			end := strings.IndexAny(input[3:], "Mm")
 			if end < 0 {
 				if !flush && len(input) <= 64 {
-					return keys, input
+					return inputs, input
 				}
-				return keys, "" // Drop malformed reports without sending their digits to mpv.
+				return inputs, "" // Drop malformed reports without sending their digits to mpv.
 			}
 			end += 3
-			if key := playbackMouseKey(input[3:end], input[end] == 'M'); key != "" {
-				keys = append(keys, key)
+			if mouse := parsePlaybackMouse(input[3:end], input[end] == 'M'); mouse != nil {
+				inputs = append(inputs, playbackInput{Mouse: mouse})
 			}
 			input = input[end+1:]
 			continue
 		}
 		matched, partial := false, false
 		if input[0] == '\x1b' {
-			for sequence, key := range escapeKeys {
+			for sequence, name := range escapeKeys {
 				if strings.HasPrefix(input, sequence) {
-					keys = append(keys, key)
+					key(name)
 					input = input[len(sequence):]
 					matched = true
 					break
@@ -95,47 +108,77 @@ func playbackKeys(input string, flush bool) (keys []string, pending string) {
 				continue
 			}
 			if partial && !flush {
-				return keys, input
+				return inputs, input
+			}
+			// Ignore other CSI reports (including pixel/cursor replies), rather
+			// than treating their numbers as mpv volume or picture shortcuts.
+			if strings.HasPrefix(input, "\x1b[") {
+				end := 2
+				for end < len(input) && (input[end] < 0x40 || input[end] > 0x7e) {
+					end++
+				}
+				if end == len(input) {
+					if !flush && len(input) < 64 {
+						return inputs, input
+					}
+					return inputs, ""
+				}
+				if input[end] == 't' {
+					var h, w int
+					if n, _ := fmt.Sscanf(input[2:end], "6;%d;%d", &h, &w); n == 2 && h > 0 && w > 0 && h <= 1024 && w <= 1024 {
+						inputs = append(inputs, playbackInput{CellWidth: float64(w), CellHeight: float64(h)})
+					}
+				}
+				input = input[end+1:]
+				continue
 			}
 		}
 		if !utf8.FullRuneInString(input) && !flush {
-			return keys, input
+			return inputs, input
 		}
 		r, size := utf8.DecodeRuneInString(input)
 		input = input[size:]
 		switch r {
 		case ' ':
-			keys = append(keys, "SPACE")
+			key("SPACE")
 		case '\r', '\n':
-			keys = append(keys, "ENTER")
+			key("ENTER")
 		case '\t':
-			keys = append(keys, "TAB")
+			key("TAB")
 		case '\x1b':
-			keys = append(keys, "ESC")
+			key("ESC")
 		case '\x03':
-			keys = append(keys, "q")
+			key("q")
 		case '\x7f', '\b':
-			keys = append(keys, "BS")
+			key("BS")
 		default:
 			if r >= 32 && r != utf8.RuneError {
-				keys = append(keys, string(r))
+				key(string(r))
 			}
 		}
 	}
-	return keys, ""
+	return inputs, ""
 }
 
-func playbackMouseKey(report string, pressed bool) string {
+func parsePlaybackMouse(report string, pressed bool) *playbackMouse {
 	fields := strings.Split(report, ";")
-	if !pressed || len(fields) != 3 {
-		return ""
+	if len(fields) != 3 {
+		return nil
 	}
 	button, err := strconv.Atoi(fields[0])
 	x, xErr := strconv.Atoi(fields[1])
 	y, yErr := strconv.Atoi(fields[2])
-	if err != nil || xErr != nil || yErr != nil || x <= 0 || y <= 0 || button < 0 || button&32 != 0 || button >= 128 {
+	if err != nil || xErr != nil || yErr != nil || x <= 0 || y <= 0 || button < 0 || button >= 128 {
+		return nil
+	}
+	return &playbackMouse{Button: button, X: x - 1, Y: y - 1, Pressed: pressed}
+}
+
+func (m playbackMouse) key() string {
+	if !m.Pressed || m.Button&32 != 0 {
 		return ""
 	}
+	button := m.Button
 	if button&64 != 0 {
 		switch button & 3 {
 		case 0, 3:

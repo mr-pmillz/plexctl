@@ -55,6 +55,11 @@ Simply run `plexctl` to launch the interactive terminal interface.
 
 Press **v** on a movie or episode to choose **Kitty**, **Sixel**, or **Text**
 playback. **Ctrl+P** starts terminal playback using your saved preference.
+Kitty video includes a visible control bar: play/pause, a draggable seek bar,
+skip backward/forward, volume, mute, subtitles, playback speed, and **Return**.
+Click the controls or use **Tab / Shift+Tab** and **Enter**; **h** hides or shows
+the bar. The controls also work through tmux and SSH into a Kitty terminal.
+
 The player uses mpv's Kitty or Sixel graphics output when detected, with TCT text
 output as a fallback. Press **Space** to pause, use the arrow keys to seek, and
 press **q** to return to the library. Regular **p** opens the video window.

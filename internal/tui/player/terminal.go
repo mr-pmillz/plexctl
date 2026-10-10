@@ -97,6 +97,9 @@ func (p *terminalPlayback) args(socket string) []string {
 	if p.output == config.VideoKitty {
 		// Escape-code transport also works over SSH; shared memory does not.
 		args = append(args, "--vo-kitty-use-shm=no")
+		// Our control bar uses mpv's OSD compositor and IPC, independently
+		// of the Lua OSC and its window-system mouse events.
+		args = append(args, "--osc=no")
 	}
 	return args
 }
@@ -137,6 +140,9 @@ func (p *terminalPlayback) Run() error {
 	cmd := exec.Command(p.mpv, p.args(socket)...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = p.stdin, p.stdout, io.Discard
 	var keys <-chan string
+	var graphics *termgraphics.Writer
+	var controls *terminalControls
+	var cellW, cellH float64
 	if termgraphics.InTmux() && (p.output == config.VideoKitty || p.output == config.VideoSixel) {
 		restore, err := termgraphics.EnablePassthrough()
 		if err != nil {
@@ -148,15 +154,19 @@ func (p *terminalPlayback) Run() error {
 			return err
 		}
 		defer unzoom()
-		imageID := (1 << 30) + rand.IntN(1<<20)
-		cmd.Stdout = &termgraphics.Writer{Output: p.stdout, ImageID: imageID}
-		defer func() {
-			if p.output == config.VideoKitty {
-				_, _ = io.WriteString(p.stdout, termgraphics.Wrap(termgraphics.DeleteImage(imageID)))
-			} else {
+		if p.output == config.VideoSixel {
+			cmd.Stdout = &termgraphics.Writer{Output: p.stdout}
+			defer func() {
 				_, _ = io.WriteString(p.stdout, termgraphics.Wrap("\x1b[2J\x1b[H"))
-			}
-		}()
+			}()
+		}
+	}
+	if p.output == config.VideoKitty {
+		controls = &terminalControls{focus: -1, hover: -1, speed: 1, subtitles: true}
+		p.status.Volume = 100
+		graphics = &termgraphics.Writer{Output: p.stdout, Direct: !termgraphics.InTmux(), ImageID: (1 << 30) + rand.IntN(1<<20)}
+		cmd.Stdout = graphics
+		defer func() { _, _ = io.WriteString(p.stdout, termgraphics.Wrap(termgraphics.DeleteImage(graphics.ImageID))) }()
 	}
 	// Our wrapper handles actual tmux panes. Also remove stale tmux variables
 	// from direct Kitty windows so mpv cannot wrap their graphics by mistake.
@@ -177,6 +187,13 @@ func (p *terminalPlayback) Run() error {
 		defer stop()
 		_, _ = io.WriteString(p.stdout, "\x1b[?1000h\x1b[?1006h")
 		defer func() { _, _ = io.WriteString(p.stdout, "\x1b[?1000l\x1b[?1006l") }()
+		if controls != nil {
+			cellW, cellH = terminalCellSize(input)
+			// Motion supports seek dragging and button highlights. Ask the
+			// actual terminal for cell metrics even over SSH.
+			_, _ = io.WriteString(p.stdout, "\x1b[?1003h"+termgraphics.Wrap("\x1b[16t"))
+			defer func() { _, _ = io.WriteString(p.stdout, "\x1b[?1003l") }()
+		}
 	}
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start terminal player: %w", err)
@@ -214,7 +231,11 @@ func (p *terminalPlayback) Run() error {
 		<-readerDone
 	}()
 
-	for id, property := range []string{"time-pos", "pause", "duration"} {
+	properties := []string{"time-pos", "pause", "duration"}
+	if controls != nil {
+		properties = append(properties, "volume", "mute", "speed", "sub-visibility")
+	}
+	for id, property := range properties {
 		if err := sendTerminalCommand(conn, 0, "observe_property", id+1, property); err != nil {
 			return err
 		}
@@ -233,15 +254,45 @@ func (p *terminalPlayback) Run() error {
 	}()
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
+	controlTicker := time.NewTicker(100 * time.Millisecond)
+	defer controlTicker.Stop()
+	var controlColumns, controlRows int
 	keyTimer := time.NewTimer(time.Hour)
 	keyTimer.Stop()
 	defer keyTimer.Stop()
 	pendingKeys := ""
 	forwardKeys := func(flush bool) error {
-		var decoded []string
-		decoded, pendingKeys = playbackKeys(pendingKeys, flush)
-		for _, key := range decoded {
-			if err := sendTerminalCommand(conn, 0, "keypress", key); err != nil {
+		var decoded []playbackInput
+		decoded, pendingKeys = playbackInputs(pendingKeys, flush)
+		for _, input := range decoded {
+			if input.CellWidth > 0 {
+				cellW, cellH = input.CellWidth, input.CellHeight
+				continue
+			}
+			var command []any
+			if controls != nil {
+				// ioctl follows window and font changes when pixel metrics are
+				// available; otherwise retain the terminal's cell-size reply.
+				if f, ok := p.stdin.(*os.File); ok {
+					if w, h := terminalCellSize(f); w > 0 {
+						cellW, cellH = w, h
+					}
+				}
+				frame := graphics.Frame()
+				command = controls.input(input, controls.layout(frame, p.status), frame, cellW, cellH, p.status)
+			} else {
+				key := input.Key
+				if input.Mouse != nil {
+					key = input.Mouse.key()
+				}
+				if key != "" {
+					command = []any{"keypress", key}
+				}
+			}
+			if len(command) == 0 {
+				continue
+			}
+			if err := sendTerminalCommand(conn, 0, command...); err != nil {
 				return err
 			}
 		}
@@ -266,6 +317,28 @@ func (p *terminalPlayback) Run() error {
 			if err := forwardKeys(true); err != nil {
 				return err
 			}
+		case <-controlTicker.C:
+			if controls == nil || !loaded {
+				continue
+			}
+			layout := controls.layout(graphics.Frame(), p.status)
+			resized := false
+			if input, ok := p.stdin.(*os.File); ok {
+				if columns, rows, err := term.GetSize(int(input.Fd())); err == nil {
+					resized = columns != controlColumns || rows != controlRows
+					controlColumns, controlRows = columns, rows
+				}
+			}
+			overlay := controls.overlay(layout, p.status)
+			// A paused Kitty VO needs an OSD redraw to process SIGWINCH.
+			// Resending the overlay preserves pause and the playback position.
+			if overlay == controls.lastOverlay && !resized {
+				continue
+			}
+			if err := sendTerminalCommand(conn, 2, "osd-overlay", 1, "ass-events", overlay, layout.w, layout.h); err != nil {
+				return err
+			}
+			controls.lastOverlay = overlay
 		case ev, ok := <-events:
 			if !ok {
 				// IPC normally closes just before Wait returns on EOF or q.
@@ -280,6 +353,9 @@ func (p *terminalPlayback) Run() error {
 			if ev.RequestID == 1 && ev.Error != "success" {
 				return fmt.Errorf("mpv rejected the media stream")
 			}
+			if ev.RequestID == 2 && ev.Error != "success" {
+				return fmt.Errorf("mpv could not draw video controls; use an mpv build with libass OSD support")
+			}
 			switch ev.Event {
 			case "file-loaded":
 				loaded = true
@@ -293,6 +369,14 @@ func (p *terminalPlayback) Run() error {
 			case "property-change":
 				oldState := p.status.State
 				p.applyProperty(ev)
+				if controls != nil && len(ev.Data) > 0 && string(ev.Data) != "null" {
+					switch ev.ID {
+					case 6:
+						_ = json.Unmarshal(ev.Data, &controls.speed)
+					case 7:
+						_ = json.Unmarshal(ev.Data, &controls.subtitles)
+					}
+				}
 				if loaded && p.status.State != oldState {
 					p.reportStatus()
 				}
@@ -362,6 +446,10 @@ func (p *terminalPlayback) applyProperty(ev terminalEvent) {
 		}
 	case 3:
 		_ = json.Unmarshal(ev.Data, &p.status.Duration)
+	case 4:
+		_ = json.Unmarshal(ev.Data, &p.status.Volume)
+	case 5:
+		_ = json.Unmarshal(ev.Data, &p.status.Muted)
 	}
 }
 
