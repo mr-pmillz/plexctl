@@ -41,11 +41,12 @@ type Controller struct {
 	player     *player.PlayerManager
 	alert      bubbleup.AlertModel
 
-	playerStatus player.PlayerStatus
-	returnTabIdx int
-	visualizer   visualizer.Model
-	visualTick   time.Time
-	focus        paneFocus
+	playerStatus    player.PlayerStatus
+	returnTabIdx    int
+	visualizer      visualizer.Model
+	visualTick      time.Time
+	focus           paneFocus
+	focusedAlphabet *ui.AlphabetRail
 }
 
 type switchUserSuccessMsg struct{}
@@ -531,6 +532,7 @@ func (c *Controller) showHelp() tea.Cmd {
 		{Key: "tab", Desc: "Switch Library"},
 		{Key: "ctrl+h / j / k / l", Desc: "Focus pane: left / down / up / right"},
 		{Key: "j / k, enter", Desc: "In navigation: select a library, then open it"},
+		{Key: "ctrl+l, j / k, enter", Desc: "From content: focus A–Z, choose a letter, then jump"},
 		{Key: "g, then A–Z / #", Desc: "Jump to a letter (or click the right-hand alphabet)"},
 		{Key: "Home / End / PgUp / PgDn", Desc: "First / last item / previous / next page"},
 		{Key: "H", Desc: "Home"},
@@ -582,17 +584,18 @@ func (c *Controller) renderBaseView() string {
 	// ContentHeight already accounts for player bar if active
 	contentHeight := layout.ContentHeight()
 
+	content := ""
+	if model := c.tabManager.ActiveModel(); model != nil {
+		content = model.View()
+	}
+	c.validateAlphabetFocus()
+
 	windowStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder(), true).
 		BorderForeground(c.paneBorder(paneContent)).
 		Padding(0, 1).
 		Width(layout.MainAreaContentWidth() + 2).
 		Height(contentHeight)
-
-	content := ""
-	if model := c.tabManager.ActiveModel(); model != nil {
-		content = model.View()
-	}
 
 	content = lipgloss.NewStyle().MaxWidth(layout.InnerWidth()).MaxHeight(contentHeight).Render(content)
 	body := windowStyle.Render(content)
@@ -624,6 +627,8 @@ func (c *Controller) footerText() string {
 		text = "Navigation | j/k: select | [enter] Open | Ctrl+L: content | [L] Libraries | [?] Help"
 	case panePlayer:
 		text = "Player | h/l: seek | j/k: volume | [space] Pause | Ctrl+K: content | [?] Help"
+	case paneAlphabet:
+		text = "Alphabet | j/k or ↑/↓: select | [enter] Jump | Ctrl+H: content | [esc] Cancel | [?] Help"
 	}
 	return ui.Ellipsis(text, max(1, ui.GetLayout().TotalWidth()-2))
 }

@@ -44,7 +44,8 @@ mpv's Space, Right/Left, and q bindings, including any custom bindings you set.
 - **`H`** (uppercase): Jump directly to Home tab. Lowercase **`h`** moves left within the current view.
 - **`?`**: Show help overlay.
 
-**Ctrl+H** reaches the left navigation; **Ctrl+L** returns to the library.
+From the library, **Ctrl+H** reaches the left navigation; **Ctrl+L** returns
+from the sidebar to the library. Press **Ctrl+L** again to focus the alphabet rail.
 Use **j/k** or **Up/Down** in the sidebar, then **Enter** (or **l/Right**) to open
 the selected entry. The sidebar scrolls to keep the selection visible. Holding
 a pane shortcut stops at the edge instead of cycling through panes.
@@ -52,8 +53,9 @@ a pane shortcut stops at the edge instead of cycling through panes.
 While playing, **Ctrl+J** moves from the library to the player below, and
 **Ctrl+K** moves back up. In the player, **h/l** or **Left/Right** seek,
 **j/k** or **Down/Up** adjust volume, and **Enter** pauses/resumes. **Esc**
-returns focus to the library. A highlighted border and the footer identify the
-focused pane; clicking a pane focuses it too. Dialogs retain their own input.
+returns focus to the library. The footer and highlighted border or bracketed
+letter identify the focused pane. Clicking a pane focuses it too. Dialogs retain
+their own input.
 
 ## Features
 
@@ -94,9 +96,16 @@ to numbers and other characters. Plex sort titles are respected; accented Latin
 names share their base letter. Albums are alphabetical; tracks retain album order
 and jump by song title. The rail folds into columns in shorter panes.
 
+From the content pane, **Ctrl+L** focuses the rail at the current title's letter.
+Use **j/k** or **Down/Up** to move the bracketed selection, then **Enter** to jump
+and return focus to the content. **Home / End** select **# / Z** while the rail is
+focused. **Ctrl+H**, **h/Left**, or **Esc** returns without jumping. Moving the
+letter selection leaves the current title unchanged until you press **Enter**.
+
 Library jumps fetch missing pages automatically and show the loaded/total count.
-Press **Esc** to cancel a pending jump, **Home** for the first item, **End** for the
-last item (loading remaining pages), or **Page Up / Page Down** to move by a page.
+In the content pane, press **Esc** to cancel a pending jump, **Home** for the first
+item, **End** for the last item (loading remaining pages), or **Page Up / Page Down**
+to move by a page.
 Fetched pages stay available for subsequent jumps while the TUI is open.
 
 Music plays in the current TUI by default, without opening an mpv window, even

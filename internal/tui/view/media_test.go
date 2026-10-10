@@ -152,3 +152,36 @@ func TestUnknownTotalContinuesUntilEmptyPage(t *testing.T) {
 		t.Fatal("empty page did not finish pagination")
 	}
 }
+
+func TestLibraryAlphabetFocusSurvivesResize(t *testing.T) {
+	for _, mediaType := range []string{"movie", "show", "artist"} {
+		t.Run(mediaType, func(t *testing.T) {
+			ui.GetLayout().Update(100, 40, false)
+			v := NewMediaView("library", "Library", ui.PlexctlTheme)
+			v.Init()
+			v.Update(ui.MediaPageMsg{SectionID: "library", RequestID: v.requestID, Total: 2,
+				Metadata: []components.Metadata{
+					{RatingKey: ui.Ptr("a"), Type: mediaType, Title: "Amber"},
+					{RatingKey: ui.Ptr("z"), Type: mediaType, Title: "Zebra"},
+				}})
+			v.View()
+			rail := v.AlphabetRail()
+			if rail == nil || rail.Width == 0 {
+				t.Fatal("library did not expose a visible alphabet rail")
+			}
+			rail.Focus("Z")
+			for _, mode := range []ViewMode{ViewModePoster, ViewModeList} {
+				v.viewMode = mode
+				ui.GetLayout().Update(80, 24, false)
+				v.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+				if !strings.Contains(v.View(), "[Z]") || v.GetSelectedMetadata().Title != "Amber" {
+					t.Fatal("rendering or resizing lost the rail cursor or changed the title")
+				}
+			}
+			v.JumpToLetter(rail.SelectedLetter())
+			if v.GetSelectedMetadata().Title != "Zebra" {
+				t.Fatal("jump did not select the requested title")
+			}
+		})
+	}
+}

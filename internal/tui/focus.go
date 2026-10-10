@@ -12,14 +12,48 @@ const (
 	paneContent paneFocus = iota
 	paneSidebar
 	panePlayer
+	paneAlphabet
 )
 
 func (c *Controller) focusPane(pane paneFocus) {
+	if c.focusedAlphabet != nil {
+		c.focusedAlphabet.Focused = false
+		c.focusedAlphabet = nil
+	}
 	if pane == panePlayer && !c.playerStatus.Active() {
 		pane = paneContent
 	}
+	if pane == paneAlphabet {
+		if rail := c.alphabetRail(); rail != nil && rail.Width > 0 {
+			letter := "#"
+			if provider, ok := c.tabManager.ActiveModel().(ui.PlayableProvider); ok {
+				if meta := provider.GetSelectedMetadata(); meta != nil {
+					letter = ui.AlphabetLetter(*meta)
+				}
+			}
+			rail.Focus(letter)
+			c.focusedAlphabet = rail
+		} else {
+			pane = paneContent
+		}
+	}
 	c.focus = pane
 	c.tabManager.navbar.SetFocused(pane == paneSidebar)
+}
+
+func (c *Controller) alphabetRail() *ui.AlphabetRail {
+	if target, ok := c.tabManager.ActiveModel().(ui.AlphabetNavigator); ok && target.CanJumpLetters() {
+		return target.AlphabetRail()
+	}
+	return nil
+}
+
+func (c *Controller) validateAlphabetFocus() {
+	if c.focus == paneAlphabet {
+		if rail := c.alphabetRail(); rail == nil || rail.Width == 0 || rail != c.focusedAlphabet {
+			c.focusPane(paneContent)
+		}
+	}
 }
 
 func (c *Controller) paneBorder(pane paneFocus) lipgloss.TerminalColor {
@@ -32,15 +66,23 @@ func (c *Controller) paneBorder(pane paneFocus) lipgloss.TerminalColor {
 // Pane keys run after modal input handling, so text fields keep their editing
 // keys. Directional moves stop at the edge, including when a key is held down.
 func (c *Controller) paneKey(key string) (tea.Cmd, bool) {
+	c.validateAlphabetFocus()
 	switch key {
 	case "ctrl+h":
-		c.focusPane(paneSidebar)
-	case "ctrl+l":
-		if c.focus == paneSidebar {
+		if c.focus == paneAlphabet {
 			c.focusPane(paneContent)
+		} else {
+			c.focusPane(paneSidebar)
+		}
+	case "ctrl+l":
+		switch c.focus {
+		case paneSidebar:
+			c.focusPane(paneContent)
+		case paneContent:
+			c.focusPane(paneAlphabet)
 		}
 	case "ctrl+j":
-		if c.focus == paneContent && c.playerStatus.Active() {
+		if (c.focus == paneContent || c.focus == paneAlphabet) && c.playerStatus.Active() {
 			c.focusPane(panePlayer)
 		}
 	case "ctrl+k":
@@ -54,6 +96,30 @@ func (c *Controller) paneKey(key string) (tea.Cmd, bool) {
 }
 
 func (c *Controller) focusedKey(key string) (tea.Cmd, bool) {
+	if c.focus == paneAlphabet {
+		rail := c.focusedAlphabet
+		switch key {
+		case "j", "down":
+			rail.MoveCursor(1)
+		case "k", "up":
+			rail.MoveCursor(-1)
+		case "home":
+			rail.MoveCursor(-len(ui.AlphabetLetters))
+		case "end":
+			rail.MoveCursor(len(ui.AlphabetLetters))
+		case "enter":
+			letter := rail.SelectedLetter()
+			c.focusPane(paneContent)
+			if target, ok := c.tabManager.ActiveModel().(ui.LetterJumper); ok {
+				return target.JumpToLetter(letter), true
+			}
+		case "esc", "h", "left":
+			c.focusPane(paneContent)
+		default:
+			return nil, false
+		}
+		return nil, true
+	}
 	if c.focus == paneSidebar {
 		nav := c.tabManager.navbar
 		switch key {

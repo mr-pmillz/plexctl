@@ -100,7 +100,7 @@ click to pause, scroll to seek, and right click to return. **V** switches librar
 list/poster views.
 
 **Ctrl+H/J/K/L** moves focus left/down/up/right between the sidebar, library,
-and active player. The focused pane has a highlighted border. In the sidebar,
+alphabet rail, and active player. The focused pane is highlighted. In the sidebar,
 use **j/k** or the arrows to select a library, then **Enter** to open it.
 **L** opens library settings; **Ctrl+S** opens global settings.
 
@@ -117,7 +117,10 @@ album starts its first playable track.
 
 Click the right-hand **A–Z rail**, or press **g then a letter**, to jump through
 movies, TV shows, artists, albums, and track titles. Missing library pages load
-automatically. **Home / End** reach the first/last item; **Page Up / Page Down**
+automatically. From the library, **Ctrl+L** focuses the rail: **j/k** or **Down/Up**
+select a letter, and **Enter** jumps to it and returns focus to the content.
+**Ctrl+H** or **Esc** returns without jumping. In the content pane,
+**Home / End** reach the first/last item; **Page Up / Page Down**
 move by a page. The library footer shows how many items have loaded.
 
 Use **Space** to pause, **[ / ]** to seek, **+ / -** for volume, **m** to mute,

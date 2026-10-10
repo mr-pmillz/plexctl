@@ -40,6 +40,13 @@ func (v *HomeView) CanJumpLetters() bool {
 	return ok && target.CanJumpLetters()
 }
 
+func (v *HomeView) AlphabetRail() *ui.AlphabetRail {
+	if target, ok := v.details.View.(ui.AlphabetNavigator); ok {
+		return target.AlphabetRail()
+	}
+	return nil
+}
+
 func (v *HomeView) JumpToLetter(letter string) tea.Cmd {
 	if target, ok := v.details.View.(ui.LetterJumper); ok {
 		return target.JumpToLetter(letter)

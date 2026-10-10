@@ -355,6 +355,19 @@ func (v *MediaView) CanJumpLetters() bool {
 	return true
 }
 
+func (v *MediaView) AlphabetRail() *ui.AlphabetRail {
+	if v.details.Active() {
+		if target, ok := v.details.View.(ui.AlphabetNavigator); ok {
+			return target.AlphabetRail()
+		}
+		return nil
+	}
+	if v.err != nil && v.loadedItems == 0 {
+		return nil
+	}
+	return &v.rail
+}
+
 func (v *MediaView) JumpToLetter(letter string) tea.Cmd {
 	if v.details.Active() {
 		if target, ok := v.details.View.(ui.LetterJumper); ok {
@@ -403,7 +416,7 @@ func (v *MediaView) advanceJump() tea.Cmd {
 func (v *MediaView) updateBounds() {
 	layout := ui.GetLayout()
 	height := max(1, layout.ContentHeight()-1)
-	v.rail = ui.NewAlphabetRail(layout.InnerWidth(), 0, height)
+	v.rail.SetBounds(layout.InnerWidth(), 0, height)
 	rect := ui.Rect{Width: max(1, layout.InnerWidth()-v.rail.Width), Height: height}
 	if rect != v.contentRect {
 		v.contentRect = rect

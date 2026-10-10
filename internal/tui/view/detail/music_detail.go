@@ -87,6 +87,16 @@ func (v *MusicDetailView) CanJumpLetters() bool {
 	return v.Metadata != nil && (v.Metadata.Type == "artist" || v.Metadata.Type == "album")
 }
 
+func (v *MusicDetailView) AlphabetRail() *ui.AlphabetRail {
+	if v.selected != nil {
+		return v.selected.AlphabetRail()
+	}
+	if v.Loading || v.Err != nil || !v.CanJumpLetters() {
+		return nil
+	}
+	return &v.rail
+}
+
 func (v *MusicDetailView) JumpToLetter(letter string) tea.Cmd {
 	if v.selected != nil {
 		return v.selected.JumpToLetter(letter)
@@ -252,7 +262,7 @@ func (v *MusicDetailView) View() string {
 		lipgloss.NewStyle().Width(infoWidth).Foreground(v.Theme.BrightCyan()).Render(info),
 	)
 	v.listRect = ui.Rect{}
-	v.rail = ui.AlphabetRail{}
+	v.rail.Rect = ui.Rect{}
 	footer := "[p] Play | [v] Player | [esc] Back"
 	switch v.Metadata.Type {
 	case "track":
@@ -261,7 +271,7 @@ func (v *MusicDetailView) View() string {
 	case "artist":
 		rect := ui.Rect{X: 2, Y: 2 + lipgloss.Height(header), Width: width}
 		rect.Height = max(1, ui.GetLayout().ContentHeight()-rect.Y-3)
-		v.rail = ui.NewAlphabetRail(2+width, rect.Y, rect.Height)
+		v.rail.SetBounds(2+width, rect.Y, rect.Height)
 		rect.Width -= v.rail.Width
 		if rect != v.albumsRect {
 			v.albumsRect = rect
@@ -278,7 +288,7 @@ func (v *MusicDetailView) View() string {
 	default:
 		v.listRect = ui.Rect{X: 2, Y: 2 + lipgloss.Height(header), Width: width}
 		v.listRect.Height = max(4, ui.GetLayout().ContentHeight()-v.listRect.Y-3)
-		v.rail = ui.NewAlphabetRail(2+width, v.listRect.Y, v.listRect.Height)
+		v.rail.SetBounds(2+width, v.listRect.Y, v.listRect.Height)
 		v.listRect.Width -= v.rail.Width
 		coverWidth := detailPosterWidth(v.Metadata)
 		cover := v.Poster
@@ -298,7 +308,7 @@ func (v *MusicDetailView) View() string {
 			header += "\n\n" + cover
 			v.listRect.Y += lipgloss.Height(cover) + 2
 			v.listRect.Height -= lipgloss.Height(cover) + 2
-			v.rail = ui.NewAlphabetRail(2+width, v.listRect.Y, v.listRect.Height)
+			v.rail.SetBounds(2+width, v.listRect.Y, v.listRect.Height)
 			v.listRect.Width = width - v.rail.Width
 		}
 		v.items.SetSize(max(1, v.listRect.Width), v.listRect.Height)

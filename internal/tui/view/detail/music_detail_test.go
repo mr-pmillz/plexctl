@@ -170,3 +170,55 @@ func TestCompactAlbumFitsArtworkTracksAlphabetAndFooter(t *testing.T) {
 		t.Fatal("compact album lost its footer or mouse alphabet")
 	}
 }
+
+func TestMusicAlphabetFocusFollowsAlbumAndTrackLists(t *testing.T) {
+	ui.GetLayout().Update(100, 40, false)
+	artist := NewMusicDetailView("artist", ui.PlexctlTheme)
+	if artist.AlphabetRail() != nil {
+		t.Fatal("loading artist exposed an invisible rail")
+	}
+	artist.Update(detailDataMsg{metadata: &components.Metadata{Type: "artist", Title: "Artist"},
+		children: []components.Metadata{
+			{RatingKey: ui.Ptr("a"), Type: "album", Title: "Amber"},
+			{RatingKey: ui.Ptr("z"), Type: "album", Title: "Zebra"},
+		}})
+	artist.View()
+	albumsRail := artist.AlphabetRail()
+	albumsRail.Focus("Z")
+	if !strings.Contains(artist.View(), "[Z]") || artist.GetSelectedMetadata().Title != "Amber" {
+		t.Fatal("album rail rendering lost focus or changed the selected album")
+	}
+	artist.JumpToLetter(albumsRail.SelectedLetter())
+	albumsRail.Focused = false
+	artist.Update(ui.KeyPress("enter"))
+	if artist.AlphabetRail() != nil {
+		t.Fatal("loading album exposed the parent artist's rail")
+	}
+	artist.Update(detailDataMsg{metadata: &components.Metadata{Type: "album", Title: "Zebra"},
+		children: []components.Metadata{
+			{RatingKey: ui.Ptr("song1"), Type: "track", Title: "Zulu", Index: ui.Ptr(1)},
+			{RatingKey: ui.Ptr("song2"), Type: "track", Title: "Amber", Index: ui.Ptr(2)},
+		}})
+	artist.View()
+	tracksRail := artist.AlphabetRail()
+	if tracksRail == nil || tracksRail == albumsRail {
+		t.Fatal("album did not expose its own track-list rail")
+	}
+	tracksRail.Focus("A")
+	for _, size := range [][2]int{{80, 24}, {100, 40}} {
+		ui.GetLayout().Update(size[0], size[1], false)
+		if !strings.Contains(artist.View(), "[A]") || artist.GetSelectedMetadata().Title != "Zulu" {
+			t.Fatal("track-list resize lost focus or changed the selected track")
+		}
+	}
+	artist.JumpToLetter(tracksRail.SelectedLetter())
+	if artist.GetSelectedMetadata().Title != "Amber" {
+		t.Fatal("rail did not jump by track title")
+	}
+	tracksRail.Focused = false
+	artist.Update(ui.KeyPress("enter"))
+	artist.Update(detailDataMsg{metadata: &components.Metadata{Type: "track", Title: "Amber"}})
+	if artist.AlphabetRail() != nil {
+		t.Fatal("individual track exposed an invisible rail")
+	}
+}

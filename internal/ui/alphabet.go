@@ -20,9 +20,18 @@ type LetterJumper interface {
 	JumpToLetter(string) tea.Cmd
 }
 
+type AlphabetNavigator interface {
+	LetterJumper
+	AlphabetRail() *AlphabetRail
+}
+
 // AlphabetRail folds into additional columns in short panes. The same geometry
 // drives rendering and hit testing, including after the music player resizes it.
-type AlphabetRail struct{ Rect }
+type AlphabetRail struct {
+	Rect
+	Focused bool
+	cursor  int
+}
 
 func NewAlphabetRail(right, top, height int) AlphabetRail {
 	if height < 5 || right < 12 {
@@ -33,7 +42,25 @@ func NewAlphabetRail(right, top, height int) AlphabetRail {
 	if width+8 > right {
 		return AlphabetRail{}
 	}
-	return AlphabetRail{Rect{X: right - width, Y: top, Width: width, Height: rows}}
+	return AlphabetRail{Rect: Rect{X: right - width, Y: top, Width: width, Height: rows}}
+}
+
+// SetBounds retains keyboard selection when the rail folds after a resize.
+func (r *AlphabetRail) SetBounds(right, top, height int) {
+	r.Rect = NewAlphabetRail(right, top, height).Rect
+}
+
+func (r *AlphabetRail) Focus(letter string) {
+	r.Focused = true
+	r.cursor = max(0, strings.Index(AlphabetLetters, letter))
+}
+
+func (r *AlphabetRail) MoveCursor(delta int) {
+	r.cursor = max(0, min(len(AlphabetLetters)-1, r.cursor+delta))
+}
+
+func (r AlphabetRail) SelectedLetter() string {
+	return AlphabetLetters[r.cursor : r.cursor+1]
 }
 
 func (r AlphabetRail) LetterAt(mouse tea.MouseMsg) string {
@@ -59,11 +86,18 @@ func (r AlphabetRail) View(active string, theme tint.Tint) string {
 			cell := "   "
 			if i < len(AlphabetLetters) {
 				letter := AlphabetLetters[i : i+1]
+				label := " " + letter + " "
 				style := lipgloss.NewStyle().Foreground(theme.BrightBlack())
-				if letter == active {
+				switch {
+				case r.Focused && i == r.cursor:
+					label = "[" + letter + "]"
+					style = style.Foreground(theme.Black()).Background(Accent(theme)).Bold(true)
+				case r.Focused && letter == active:
+					style = style.Foreground(Accent(theme)).Bold(true)
+				case !r.Focused && letter == active:
 					style = style.Foreground(theme.Black()).Background(Accent(theme)).Bold(true)
 				}
-				cell = style.Render(" " + letter + " ")
+				cell = style.Render(label)
 			}
 			rows[y] += cell
 		}

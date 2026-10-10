@@ -51,3 +51,34 @@ func TestAlphabetRespectsSortTitleAccentsAndNumbers(t *testing.T) {
 		}
 	}
 }
+
+func TestAlphabetKeyboardSelectionSurvivesFolding(t *testing.T) {
+	rail := NewAlphabetRail(50, 4, 40)
+	rail.Focus("L")
+	rail.MoveCursor(1)
+	for _, height := range []int{40, 14, 9, 6, 5, 40} {
+		rail.SetBounds(50, 4, height)
+		if !rail.Focused || rail.SelectedLetter() != "M" {
+			t.Fatalf("height %d lost keyboard selection", height)
+		}
+		view := ansi.Strip(rail.View("A", PlexctlTheme))
+		if strings.Count(view, "[") != 1 || !strings.Contains(view, "[M]") {
+			t.Fatalf("height %d did not highlight the cursor independently of the active title", height)
+		}
+		for y, line := range strings.Split(view, "\n") {
+			if x := strings.Index(line, "[M]"); x >= 0 {
+				for offset := range 3 {
+					mouse := tea.MouseMsg{X: rail.X + x + offset, Y: rail.Y + y,
+						Button: tea.MouseButtonLeft, Action: tea.MouseActionPress}
+					if got := rail.LetterAt(mouse); got != "M" {
+						t.Fatalf("height %d: clicking focused letter cell returned %q", height, got)
+					}
+				}
+			}
+		}
+	}
+	rail.Focused = false
+	if strings.Contains(rail.View("A", PlexctlTheme), "[M]") {
+		t.Fatal("unfocused rail kept its keyboard cursor")
+	}
+}
