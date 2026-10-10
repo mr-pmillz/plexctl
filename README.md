@@ -35,11 +35,28 @@ chmod +x plexctl
 sudo mv plexctl /usr/local/bin/
 ```
 
-Alternatively, if you have Go installed:
+Alternatively, with Go **1.27.2 or newer** installed:
 
 ```bash
 go install github.com/ygelfand/plexctl@latest
 ```
+
+Builds made with Go 1.27 require macOS 13 Ventura or newer on macOS.
+
+## Development checks
+
+Use Go 1.27.2 or newer and golangci-lint 2.14.0, built with the same Go version:
+
+```bash
+go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
+go build ./...
+go test -race -tags=integration ./...
+golangci-lint run
+golangci-lint run --build-tags integration
+```
+
+The audio integration test uses a local mpv installation and skips when mpv is unavailable.
+Pull requests run these checks and `govulncheck` in GitHub Actions.
 
 ## Features
 
