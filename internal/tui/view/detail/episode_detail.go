@@ -141,5 +141,5 @@ func (v *EpisodeDetailView) View() string {
 	mainLayout := v.RenderPosterAndInfo(infoSection)
 
 	return lipgloss.NewStyle().Padding(1, 2).Render(mainLayout) +
-		"\n\n " + dimStyle.Render("[p] Play | [s] Season | [S] Show | [esc] Back | [↑/↓] Scroll Synopsis")
+		"\n\n " + dimStyle.Render("[p] Play | [v] Terminal | [s] Season | [S] Show | [esc] Back | [↑/↓] Scroll Synopsis")
 }

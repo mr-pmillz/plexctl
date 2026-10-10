@@ -14,8 +14,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	tint "github.com/lrstanley/bubbletint"
-	gopixels "github.com/saran13raj/go-pixels"
 	"github.com/ygelfand/plexctl/internal/plex"
+	"github.com/ygelfand/plexctl/internal/tui/artwork"
 	"github.com/ygelfand/plexctl/internal/ui"
 )
 
@@ -44,7 +44,7 @@ func FetchPoster(listID int, index int, metadata components.Metadata) tea.Cmd {
 		}
 
 		if rk != "" {
-			if cached, ok := plex.GetCachedPoster(rk, ui.PosterWidth); ok {
+			if cached, ok := artwork.Cached(rk, ui.PosterWidth); ok {
 				return PosterLoadedMsg{ListID: listID, Index: index, View: cached}
 			}
 		}
@@ -72,13 +72,9 @@ func FetchPoster(listID int, index int, metadata components.Metadata) tea.Cmd {
 			return nil
 		}
 
-		imgStr, err := gopixels.FromImageStream(img, ui.PosterWidth, 0, "halfcell", true)
+		imgStr, err := artwork.Render(rk, img, ui.PosterWidth, ui.PosterHeight)
 		if err != nil {
 			return nil
-		}
-
-		if rk != "" {
-			plex.SetCachedPoster(rk, ui.PosterWidth, imgStr)
 		}
 
 		return PosterLoadedMsg{ListID: listID, Index: index, View: imgStr}
@@ -112,6 +108,7 @@ func RenderPosterItem(item *PosterItem, isSelected bool, active bool, theme tint
 	label := GetDisplayTitle(&item.Metadata)
 	labelStyle := lipgloss.NewStyle().
 		Width(ui.PosterWidth).
+		Height(2).
 		Align(lipgloss.Center).
 		Foreground(theme.White()).
 		MaxHeight(2)

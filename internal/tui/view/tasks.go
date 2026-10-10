@@ -14,7 +14,7 @@ import (
 )
 
 type TasksTab struct {
-	table  table.Model
+	table  ui.Table
 	width  int
 	height int
 }

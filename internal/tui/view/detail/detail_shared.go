@@ -18,8 +18,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	tint "github.com/lrstanley/bubbletint"
-	gopixels "github.com/saran13raj/go-pixels"
 	"github.com/ygelfand/plexctl/internal/plex"
+	"github.com/ygelfand/plexctl/internal/tui/artwork"
 	"github.com/ygelfand/plexctl/internal/ui"
 )
 
@@ -68,7 +68,7 @@ func fetchPoster(metadata *components.Metadata, width int) tea.Cmd {
 
 		// Check long-term cache for rendered string
 		if rk != "" {
-			if cached, ok := plex.GetCachedPoster(rk, targetWidth); ok {
+			if cached, ok := artwork.Cached(rk, targetWidth); ok {
 				return posterDataMsg(cached)
 			}
 		}
@@ -88,17 +88,12 @@ func fetchPoster(metadata *components.Metadata, width int) tea.Cmd {
 			return nil
 		}
 
-		imgStr, err := gopixels.FromImageStream(img, targetWidth, 0, "halfcell", true)
+		imgStr, err := artwork.Render(rk, img, targetWidth, 0)
 		if err != nil {
 			slog.Error("fetchPoster render failed", "error", err)
 			return nil
 		}
 		slog.Debug("fetchPoster render complete", "duration", time.Since(start))
-
-		// Save to long-term cache
-		if rk != "" {
-			plex.SetCachedPoster(rk, targetWidth, imgStr)
-		}
 
 		return posterDataMsg(imgStr)
 	}

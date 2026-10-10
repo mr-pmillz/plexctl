@@ -15,7 +15,7 @@ import (
 )
 
 type SessionsTab struct {
-	table  table.Model
+	table  ui.Table
 	width  int
 	height int
 }

@@ -17,7 +17,7 @@ type LibrarySelectedMsg struct {
 }
 
 type LibrariesTab struct {
-	table  table.Model
+	table  ui.Table
 	width  int
 	height int
 }
@@ -86,6 +86,9 @@ func (t *LibrariesTab) fetchLibraries() tea.Msg {
 
 func (t *LibrariesTab) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
+	if mouse, ok := msg.(tea.MouseMsg); ok && t.table.Click(mouse) {
+		msg = ui.KeyPress("enter")
+	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		t.width = msg.Width

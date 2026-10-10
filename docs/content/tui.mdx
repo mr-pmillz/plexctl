@@ -8,21 +8,39 @@ The plexctl Interactive Interface (TUI) provides a rich, full-screen experience 
 - **`j` / `k` (or Arrows)**: Move cursor up and down.
 - **`h` / `l` (or Arrows)**: Move through horizontal lists or scroll columns.
 - **`Enter`**: Select an item or view details.
+- **`V`** (uppercase): Switch a library between list and poster views.
 - **`Esc`**: Go back or close overlays.
 - **`q`**: Quit the application.
+
+### Mouse
+
+Mouse support is enabled automatically, including inside tmux:
+
+- **Left click** a sidebar item, cover poster, table row, search result, or dialog
+  option to open it. The sidebar and footer actions are clickable too.
+- **Wheel** scrolls the view under the pointer: the sidebar, poster grid, Home
+  sections, tables, synopsis, season/episode lists, or an open dialog.
+- **Shift+wheel** or a horizontal wheel browses a Home poster row.
+- **Right click** goes back one level or closes the current dialog. Clicks outside
+  an open dialog do not activate the library behind it.
+- Hold **Shift** while selecting text to use the terminal's own selection.
+
+During terminal playback, **left click** pauses/resumes, **wheel up/down** seeks
+forward/backward, and **right click** stops and returns to the library. These use
+mpv's Space, Right/Left, and q bindings, including any custom bindings you set.
 
 ## Global Shortcuts
 
 - **`u`**: Switch User (Plex Home).
 - **`p`**: Play selected item.
-- **`ctrl+p`**: Play selected item in TCT mode (terminal-based video rendering).
+- **`v`**: Choose terminal playback: Automatic, Kitty, Sixel, or Text.
+- **`ctrl+p`**: Stream the selected item in the terminal (Kitty, Sixel, or TCT).
 - **`/`**: Open global fuzzy search.
 - **`ctrl+l`**: Open library configuration (show/hide/icon picker).
 - **`ctrl+s`**: Open global settings (theme/icon type).
 - **`r`**: Refresh current view / trigger reindex (on search page).
 - **`x`**: Stop current playback.
 - **`h`**: Jump directly to Home tab.
-- **`u`**: Switch User (Plex Home).
 - **`?`**: Show help overlay.
 
 ## Features
@@ -37,11 +55,85 @@ Pressing `ctrl+l` opens the configuration manager. Here you can:
 - **Reorder** how libraries appear in your sidebar.
 
 ### Integrated Player
+
+Music libraries open **artists → albums → tracks**. Click an item or press
+**Enter** to browse, then press **`p`** to play the selected track. Playing an
+artist or album directly starts its first playable track; open the album to
+choose another song. **Esc** or right click returns to the previous level.
+
 When playback is started, a playback bar appears at the bottom showing:
 - Current progress and duration.
 - Play/Pause status.
 - Media title.
-You can control the player directly from the TUI using `space` to pause/resume and `x` to stop.
+You can control the player directly from the TUI using `space` or clicking the
+player bar to pause/resume, and `x` or the footer's **Stop** action to stop.
+
+### Terminal Video
+
+Press **`v`** on a movie or episode to open the terminal playback menu. Select
+**Kitty graphics**, **Sixel graphics**, **Text**, or **Automatic**. The menu shows
+the detected terminal capabilities. **`ctrl+p`** uses the preference saved in
+Settings. Playback takes over the full terminal; the library view returns when
+the video ends or you press **`q`**. During playback, mpv's keyboard bindings apply:
+
+- **`Space`** or **left click**: Pause or resume.
+- **`Left` / `Right`** or **wheel**: Seek backward or forward.
+- **`9` / `0`**: Decrease or increase volume.
+- **`j`**: Cycle subtitle tracks.
+- **`q`** or **right click**: Stop and return to the library.
+
+The resume prompt, external subtitle tracks, and Plex watch progress also work
+with terminal playback. The library's `x` shortcut applies to windowed playback;
+use `q` while terminal video is playing.
+
+Choose **Terminal Video** in **`ctrl+s`** Settings:
+
+| Renderer | Behavior |
+| --- | --- |
+| `auto` (default) | Probe terminal graphics support and check mpv's compiled outputs; fall back to TCT. |
+| `kitty` | Use the Kitty graphics protocol. Requires a compatible terminal. |
+| `sixel` | Use Sixel graphics. Requires Sixel support enabled in the terminal. |
+| `tct` | Use mpv's true-color text renderer. |
+
+Auto detection queries the attached terminal, including through tmux. Kitty is
+preferred when supported, followed by Sixel, then TCT. If a terminal does not
+answer, known terminal environment variables are used outside multiplexers.
+Check your mpv build with **`mpv --vo=help`**. An explicitly selected renderer
+that is missing from mpv produces an error instead of silently changing output.
+
+You can override the preference for a launch or play directly from the CLI:
+
+```bash
+plexctl tui --terminal-video kitty
+plexctl tui --terminal-video sixel
+plexctl play 12345 --terminal-video auto
+plexctl play 12345 --terminal-video sixel --no-resume
+```
+
+The preference is stored as `terminal_video` in `~/.plexctl.yaml` and can also be
+set with `PLEXCTL_TERMINAL_VIDEO`. Plain `p` and `plexctl play 12345` still open a
+video window. The existing `plexctl play 12345 --tct` explicitly selects TCT.
+
+Kitty output uses escape-code transport, so it does not require shared memory
+with the terminal when using SSH. With tmux 3.3+, plexctl temporarily enables
+graphics passthrough for its own pane. During graphics playback it zooms that
+pane so video cannot cover neighboring panes, then restores the layout and
+passthrough setting on exit. Older mpv releases are supported by forwarding
+graphics and input through plexctl. GNU screen uses TCT in auto mode.
+Rendering speed and image quality depend on terminal size, connection speed,
+and mpv. Installing Kitty alone does not enable graphics in another emulator;
+launch plexctl (or attach tmux) from the Kitty application.
+See [mpv's video output documentation](https://mpv.io/manual/stable/#video-output-drivers)
+for terminal requirements and configuration.
+
+### High-resolution cover posters
+
+In Kitty 0.28+, using Unicode image placeholders, movie
+and TV posters automatically use native images, retaining up to 768 pixels on
+their longest side instead of reducing the cover to 15 colored text cells.
+This works in grids, details, and through tmux. Posters scroll and clip with the
+TUI and are restored after video playback. Other terminals retain text posters.
+No cache clearing or configuration change is required.
 
 ### User Switching (Plex Home)
 Pressing `u` opens the "Who's watching?" profile picker. This allows you to switch between managed users in your Plex Home.

@@ -16,6 +16,7 @@ icon_type: "nerdfonts" # Default: emoji (detected)
 library_name_format: "icon_name" # Default: icon_name
 default_view_mode: "poster" # Default: poster
 close_video_on_quit: true # Default: false
+terminal_video: "auto" # auto, kitty, sixel, tct
 cache_dir: "/home/user/.plexctl/cache" # Default: ~/.plexctl/cache
 default_server: "d9e8f7a6b5c4d3e2f1a0"
 servers:
@@ -74,6 +75,23 @@ The initial layout used when browsing a library.
 ## Playback & Cache
 
 Settings related to how media is played and how data is stored locally.
+
+### `terminal_video`
+Selects the renderer used by **Ctrl+P** for full-terminal video playback.
+Press **v** to choose a renderer for an individual playback.
+- **Default:** `auto`
+- **Options:** `auto`, `kitty`, `sixel`, `tct`.
+- **TUI:** Change **Terminal Video** in **Ctrl+S** Settings.
+- **Override:** `--terminal-video kitty` or `PLEXCTL_TERMINAL_VIDEO=kitty`.
+
+Auto mode probes the attached terminal, checks which outputs mpv provides,
+and falls back to TCT. Graphics require support in both the terminal and mpv;
+run `mpv --vo=help` to check the latter. tmux 3.3+ is supported automatically;
+unknown terminals use TCT. Plain `p` continues to open a video window. For CLI terminal
+playback, pass `plexctl play <id> --terminal-video <renderer>` explicitly.
+
+Terminal playback ends on **q** or at the end of the video and returns to the
+library, independently of `close_video_on_quit`.
 
 ### `close_video_on_quit`
 When exiting `plexctl`, determine if the `mpv` video window should also be closed.

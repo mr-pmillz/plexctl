@@ -69,10 +69,18 @@ func (m *SearchOverlayModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
+	case tea.MouseMsg:
+		msg.X -= 3
+		msg.Y -= 4
+		if ui.ListMouse(&m.list, msg) {
+			return m.Update(ui.KeyPress("enter"))
+		}
+		return m, nil
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.list.SetSize(max(m.width/2, 60), max(m.height/2, 20))
+		m.list.SetSize(max(1, min(m.width-8, max(m.width/2, 60))), max(5, min(m.height-8, 24)))
+		m.textInput.Width = max(1, m.list.Width()-4)
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "esc":

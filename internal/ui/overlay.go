@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
 )
 
@@ -20,10 +21,11 @@ func Overlay(base, overlay string, width, height int) string {
 	overlayHeight := lipgloss.Height(overlay)
 
 	// 2. Calculate start vertical position
-	startY := (height - overlayHeight) / 2
+	startY := max(0, (height-overlayHeight)/2)
 
 	baseLines := strings.Split(base, "\n")
 
+	overlay = lipgloss.NewStyle().Width(lipgloss.Width(overlay)).Render(overlay)
 	overlayLines := strings.Split(overlay, "\n")
 
 	// Ensure base has enough lines to fill the screen
@@ -46,7 +48,7 @@ func Overlay(base, overlay string, width, height int) string {
 		result[baseY] = lipgloss.NewStyle().
 			Width(width).
 			Align(lipgloss.Center).
-			Render(oLine)
+			Render(ansi.Truncate(oLine, width, ""))
 	}
 
 	return strings.Join(result, "\n")

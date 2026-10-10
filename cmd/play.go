@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 	"github.com/ygelfand/plexctl/internal/commands"
+	"github.com/ygelfand/plexctl/internal/config"
 	"github.com/ygelfand/plexctl/internal/plex"
 	"github.com/ygelfand/plexctl/internal/tui/player"
 )
@@ -25,6 +27,18 @@ var playCmd = &cobra.Command{
 	Args:    cobra.ExactArgs(1),
 	GroupID: "media",
 	RunE: commands.RunWithServer(func(ctx context.Context, client *plex.Client, cmd *cobra.Command, args []string, opts *commands.PlexCtlOptions) error {
+		output := config.VideoWindow
+		if tctMode {
+			output = config.VideoTCT
+		} else if cmd.Flags().Changed("terminal-video") {
+			output = config.Get().TerminalVideo
+		}
+		if output != config.VideoWindow {
+			// Progress-report diagnostics must not overwrite terminal graphics.
+			cfg := config.Get()
+			cfg.LogFile = filepath.Join(cfg.CacheDir, "player.log")
+			cfg.SetupLogging()
+		}
 		mediaID := args[0]
 		slog.Debug("CLI Play: Fetching metadata", "mediaID", mediaID)
 
@@ -37,8 +51,12 @@ var playCmd = &cobra.Command{
 
 		if trailer {
 			slog.Debug("CLI Play: Resolving trailer", "mediaID", mediaID)
-			playFunc = player.FetchAndPlayTrailer(meta, tctMode)
+			playFunc = player.FetchAndPlayTrailer(meta, output)
 		} else {
+			meta, err = plex.ResolvePlayable(ctx, meta)
+			if err != nil {
+				return err
+			}
 			offset := int64(0)
 			if !noResume && meta.ViewOffset != nil {
 				offset = int64(*meta.ViewOffset)
@@ -50,7 +68,7 @@ var playCmd = &cobra.Command{
 				slog.Info("Playing", "title", meta.Title, "type", meta.Type)
 			}
 
-			playFunc = player.PlayMedia(meta, false, tctMode, offset)
+			playFunc = player.PlayMedia(meta, false, output, offset)
 		}
 
 		if playFunc == nil {
@@ -62,16 +80,16 @@ var playCmd = &cobra.Command{
 		if err, ok := msg.(error); ok {
 			return err
 		}
+		if output != config.VideoWindow {
+			// Terminal playback owns the foreground until EOF or the user's q.
+			return nil
+		}
 		title := meta.Title
 		if trailer {
 			title = title + "(Trailer)"
 		}
 		pm := player.GetPlayerManager()
-		if tctMode {
-			fmt.Printf("Playing %s in TCT mode. Press 'q' in mpv or Ctrl+C to stop.\n", title)
-		} else {
-			fmt.Printf("Playing %s . Press Ctrl+C to stop.\n", title)
-		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Playing %s. Press Ctrl+C to stop.\n", title)
 
 		// Wait loop for CLI to keep progress reporting alive
 		for pm.VerifyConnection() {
@@ -89,7 +107,7 @@ var playCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(playCmd)
-	playCmd.Flags().BoolVar(&tctMode, "tct", false, "Use terminal video")
+	playCmd.Flags().BoolVar(&tctMode, "tct", false, "Use the TCT text renderer (legacy terminal video)")
 	playCmd.Flags().BoolVar(&noResume, "no-resume", false, "Start playback from the beginning")
 	playCmd.Flags().BoolVar(&trailer, "trailer", false, "Play the primary trailer instead of the full media")
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -12,7 +13,9 @@ import (
 	"github.com/ygelfand/plexctl/internal/commands"
 	"github.com/ygelfand/plexctl/internal/config"
 	"github.com/ygelfand/plexctl/internal/plex"
+	"github.com/ygelfand/plexctl/internal/termgraphics"
 	"github.com/ygelfand/plexctl/internal/tui"
+	"github.com/ygelfand/plexctl/internal/tui/artwork"
 )
 
 var tuiCmd = &cobra.Command{
@@ -38,6 +41,19 @@ func runTUI() error {
 	}
 
 	resultChan := make(chan plex.LoaderResult, 1)
+	caps := termgraphics.Probe(os.Stdin, os.Stdout)
+	slog.Info("Terminal graphics", "terminal", caps.Name, "kitty", caps.Kitty, "sixel", caps.Sixel,
+		"native_posters", caps.NativePosters(), "tmux", termgraphics.InTmux())
+	restore, err := termgraphics.EnablePassthrough()
+	if err != nil {
+		slog.Debug("Graphics passthrough unavailable", "error", err)
+	}
+	defer restore()
+	output, err := artwork.Open(os.Stdout, caps.NativePosters())
+	if err != nil {
+		return fmt.Errorf("initialize poster graphics: %w", err)
+	}
+	defer output.Close()
 
 	slog.Debug("TUI: Showing standalone splash")
 	tui.ShowStandaloneSplash(1*time.Second, resultChan)
@@ -47,7 +63,7 @@ func runTUI() error {
 	slog.Debug("TUI: Received loader result", "libraries", len(result.Libraries))
 
 	slog.Debug("TUI: Initializing controller and program")
-	p := tea.NewProgram(tui.NewController(result), tea.WithAltScreen())
+	p := tea.NewProgram(tui.NewController(result), tea.WithAltScreen(), tea.WithOutput(output), tea.WithMouseCellMotion())
 
 	if _, err := p.Run(); err != nil {
 		slog.Error("TUI: Program run failed", "error", err)

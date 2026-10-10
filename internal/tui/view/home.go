@@ -69,6 +69,29 @@ func (v *HomeView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	shouldRedraw := false
 
 	switch msg := msg.(type) {
+	case tea.MouseMsg:
+		if delta := ui.WheelDelta(msg); delta != 0 && !msg.Shift &&
+			msg.Button != tea.MouseButtonWheelLeft && msg.Button != tea.MouseButtonWheelRight {
+			v.viewport.SetYOffset(v.viewport.YOffset + delta*3)
+			return v, nil
+		}
+		y := -v.viewport.YOffset
+		for i, l := range v.lists {
+			height := lipgloss.Height(l.View())
+			local, inside := (ui.Rect{Y: y, Width: v.viewport.Width, Height: height}).Local(msg)
+			if inside {
+				if ui.LeftClick(msg) || ui.WheelDelta(msg) != 0 {
+					v.lists[v.activeList].Active = false
+					v.activeList = i
+					l.Active = true
+				}
+				_, cmd := l.Update(local)
+				v.updateViewportContent()
+				return v, cmd
+			}
+			y += height
+		}
+		return v, nil
 	case tea.WindowSizeMsg:
 		layout := ui.GetLayout()
 		v.viewport.Width = layout.InnerWidth()
@@ -140,6 +163,8 @@ func (v *HomeView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			dv = detail.NewShowDetailView(ratingKey, v.theme)
 		case "episode":
 			dv = detail.NewEpisodeDetailView(ratingKey, v.theme)
+		case "artist", "album", "track":
+			dv = detail.NewMusicDetailView(ratingKey, v.theme)
 		default:
 			dv = detail.NewMovieDetailView(ratingKey, v.theme)
 		}
@@ -191,7 +216,10 @@ func (v *HomeView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (v *HomeView) syncViewport() {
-	targetLine := v.activeList * (ui.PosterTotalHeight + 1)
+	targetLine := 0
+	for i := 0; i < v.activeList; i++ {
+		targetLine += lipgloss.Height(v.lists[i].View())
+	}
 	v.viewport.SetYOffset(targetLine)
 }
 
@@ -238,6 +266,13 @@ func (v *HomeView) View() string {
 	return lipgloss.NewStyle().
 		Width(ui.GetLayout().InnerWidth()).
 		Render(v.viewport.View())
+}
+
+func (v *HomeView) ActionRows() int {
+	if v.details.Active() {
+		return 1
+	}
+	return 0
 }
 
 func (v *HomeView) HelpKeys() []ui.HelpKey {

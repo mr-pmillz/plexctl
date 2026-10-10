@@ -13,12 +13,13 @@ plexctl [flags]
 ### Options
 
 ```
-      --config string   config file (default is $HOME/.plexctl.yaml)
-  -h, --help            help for plexctl
-      --no-cache        Disable caching
-  -o, --output string   Output format (table, json, json-pretty, yaml, csv, txt) (default "table")
-      --sort string     column to sort by
-  -v, --verbose count   increase verbosity
+      --config string           config file (default is $HOME/.plexctl.yaml)
+  -h, --help                    help for plexctl
+      --no-cache                Disable caching
+  -o, --output string           Output format (table, json, json-pretty, yaml, csv, txt) (default "table")
+      --sort string             column to sort by
+      --terminal-video string   Terminal video renderer for Ctrl+P or play (auto, kitty, sixel, tct) (default "auto")
+  -v, --verbose count           increase verbosity
 ```
 
 ### SEE ALSO

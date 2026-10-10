@@ -75,7 +75,7 @@ func (b *DetailBase) Update(msg tea.Msg) tea.Cmd {
 
 func (b *DetailBase) UpdateLayout() {
 	layout := ui.GetLayout()
-	rightWidth := layout.DetailRightColumnWidth(b.Poster != "")
+	rightWidth := layout.DetailRightColumnWidth(b.showPoster())
 	b.SynopsisVP.Width = rightWidth
 
 	// Default height for synopsis, can be overridden by specific views
@@ -106,7 +106,7 @@ func (b *DetailBase) RenderHeader(rightWidth int) string {
 }
 
 func (b *DetailBase) RenderPosterAndInfo(infoSection string) string {
-	if b.Poster != "" {
+	if b.showPoster() {
 		posterBox := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(b.Theme.BrightBlack()).
@@ -118,4 +118,9 @@ func (b *DetailBase) RenderPosterAndInfo(infoSection string) string {
 		)
 	}
 	return infoSection
+}
+
+func (b *DetailBase) showPoster() bool {
+	layout := ui.GetLayout()
+	return b.Poster != "" && layout.InnerWidth() >= 70 && layout.ContentHeight() >= 30
 }

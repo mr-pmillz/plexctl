@@ -30,7 +30,7 @@ const (
 type MediaView struct {
 	sectionID   string
 	title       string
-	table       table.Model
+	table       ui.Table
 	posterGrid  *poster.PosterGrid
 	theme       tint.Tint
 	err         error
@@ -178,6 +178,9 @@ func (v *MediaView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	var cmds []tea.Cmd
+	if mouse, ok := msg.(tea.MouseMsg); ok && v.viewMode == ViewModeList && v.table.Click(mouse) {
+		msg = ui.KeyPress("enter")
+	}
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -199,11 +202,15 @@ func (v *MediaView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case poster.PosterLoadedMsg:
 		_, cmd := v.posterGrid.Update(msg)
 		return v, cmd
+	case poster.ItemSelectedMsg:
+		if msg.Metadata.RatingKey != nil {
+			return v, v.ShowDetail(*msg.Metadata.RatingKey, msg.Metadata.Type)
+		}
 	case error:
 		v.err = msg
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "v":
+		case "V":
 			cfg := config.Get()
 			id, server, ok := cfg.GetActiveServer()
 
@@ -305,6 +312,8 @@ func (v *MediaView) ShowDetail(ratingKey, mediaType string) tea.Cmd {
 		dv = detail.NewSeasonDetailView(ratingKey, v.theme)
 	case "episode":
 		dv = detail.NewEpisodeDetailView(ratingKey, v.theme)
+	case "artist", "album", "track":
+		dv = detail.NewMusicDetailView(ratingKey, v.theme)
 	default:
 		dv = detail.NewMovieDetailView(ratingKey, v.theme)
 	}
@@ -323,7 +332,7 @@ func (v *MediaView) HelpKeys() []ui.HelpKey {
 	}
 	return []ui.HelpKey{
 		{Key: "enter", Desc: "View Details"},
-		{Key: "v", Desc: "Toggle View"},
+		{Key: "V", Desc: "Toggle List / Poster View"},
 		{Key: "j/up", Desc: "Move Up"},
 		{Key: "k/down", Desc: "Move Down"},
 	}
@@ -339,6 +348,13 @@ func (v *MediaView) View() string {
 	}
 
 	return v.posterGrid.View()
+}
+
+func (v *MediaView) ActionRows() int {
+	if v.details.Active() {
+		return 1
+	}
+	return 0
 }
 
 func (v *MediaView) syncTableRows() {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/LukeHagar/plexgo/models/components"
 	tea "github.com/charmbracelet/bubbletea"
@@ -13,8 +14,9 @@ import (
 	"github.com/ygelfand/plexctl/internal/ui"
 )
 
-func PlayMedia(metadata *components.Metadata, noReport bool, tctMode bool, startOffset int64) tea.Cmd {
-	if metadata == nil || len(metadata.Media) == 0 || len(metadata.Media[0].Part) == 0 {
+func PlayMedia(metadata *components.Metadata, noReport bool, output config.VideoOutput, startOffset int64) tea.Cmd {
+	part := plex.PlayablePart(metadata)
+	if part == nil {
 		return func() tea.Msg { return fmt.Errorf("no playable media found") }
 	}
 
@@ -24,7 +26,6 @@ func PlayMedia(metadata *components.Metadata, noReport bool, tctMode bool, start
 		return func() tea.Msg { return fmt.Errorf("no active server") }
 	}
 
-	part := metadata.Media[0].Part[0]
 	separator := "?"
 	if strings.Contains(part.Key, "?") {
 		separator = "&"
@@ -51,7 +52,7 @@ func PlayMedia(metadata *components.Metadata, noReport bool, tctMode bool, start
 		}
 	}
 
-	slog.Debug("Playing media", "url", playURL, "tct", tctMode, "offset", startOffset, "subtitles", len(subtitles))
+	slog.Debug("Playing media", "output", output, "offset", startOffset, "subtitles", len(subtitles))
 	rk := ""
 	if metadata.RatingKey != nil {
 		rk = *metadata.RatingKey
@@ -62,13 +63,19 @@ func PlayMedia(metadata *components.Metadata, noReport bool, tctMode bool, start
 		title = "Trailer: " + title
 	}
 
-	return GetPlayerManager().Play(playURL, title, rk, noReport, tctMode, startOffset, subtitles)
+	return GetPlayerManager().Play(playURL, title, rk, noReport, output, startOffset, subtitles)
 }
 
 // FetchAndPlay handles the full playback logic: fetch full metadata, check for resume, then play
-func FetchAndPlay(ratingKey string, tctMode bool) tea.Cmd {
+func FetchAndPlay(ratingKey string, output config.VideoOutput) tea.Cmd {
 	return func() tea.Msg {
-		meta, err := plex.GetMetadata(context.Background(), ratingKey, true)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		meta, err := plex.GetMetadata(ctx, ratingKey, true)
+		if err != nil {
+			return err
+		}
+		meta, err = plex.ResolvePlayable(ctx, meta)
 		if err != nil {
 			return err
 		}
@@ -76,11 +83,11 @@ func FetchAndPlay(ratingKey string, tctMode bool) tea.Cmd {
 		if meta.ViewOffset != nil && *meta.ViewOffset > 0 {
 			return ui.ResumeChoiceMsg{
 				Metadata: meta,
-				TctMode:  tctMode,
+				Output:   output,
 			}
 		}
 
-		cmd := PlayMedia(meta, false, tctMode, 0)
+		cmd := PlayMedia(meta, false, output, 0)
 		if cmd != nil {
 			return cmd()
 		}
@@ -89,7 +96,7 @@ func FetchAndPlay(ratingKey string, tctMode bool) tea.Cmd {
 }
 
 // FetchAndPlayTrailer handles finding and playing the correct trailer for a media item
-func FetchAndPlayTrailer(parentMeta *components.Metadata, tctMode bool) tea.Cmd {
+func FetchAndPlayTrailer(parentMeta *components.Metadata, output config.VideoOutput) tea.Cmd {
 	return func() tea.Msg {
 		targetKey := ""
 		if parentMeta.PrimaryExtraKey != nil {
@@ -120,7 +127,7 @@ func FetchAndPlayTrailer(parentMeta *components.Metadata, tctMode bool) tea.Cmd 
 			return err
 		}
 
-		cmd := PlayMedia(meta, true, tctMode, 0)
+		cmd := PlayMedia(meta, true, output, 0)
 		if cmd != nil {
 			return cmd()
 		}

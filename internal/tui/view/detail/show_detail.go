@@ -19,6 +19,7 @@ type ShowDetailView struct {
 	children       []components.Metadata
 	seasonList     list.Model
 	selectedSeason *SeasonDetailView
+	listRect       ui.Rect
 }
 
 func NewShowDetailView(ratingKey string, theme tint.Tint) *ShowDetailView {
@@ -72,16 +73,24 @@ func (v *ShowDetailView) fetchData() tea.Msg {
 
 func (v *ShowDetailView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if v.selectedSeason != nil {
-		newSeason, cmd := v.selectedSeason.Update(msg)
-		if _, ok := msg.(BackMsg); ok {
+		if _, ok := msg.(BackMsg); ok && v.selectedSeason.IsAtRoot() {
 			v.selectedSeason = nil
 			return v, nil
 		}
+		newSeason, cmd := v.selectedSeason.Update(msg)
 		v.selectedSeason = newSeason.(*SeasonDetailView)
 		return v, cmd
 	}
 
 	var cmds []tea.Cmd
+	if mouse, ok := msg.(tea.MouseMsg); ok {
+		if local, inside := v.listRect.Local(mouse); inside {
+			if ui.ListMouse(&v.seasonList, local) {
+				return v.Update(ui.KeyPress("enter"))
+			}
+			return v, nil
+		}
+	}
 
 	switch msg := msg.(type) {
 	case detailDataMsg:
@@ -110,8 +119,6 @@ func (v *ShowDetailView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var listCmd tea.Cmd
 	v.seasonList, listCmd = v.seasonList.Update(msg)
 	cmds = append(cmds, listCmd)
-
-	v.seasonList.SetSize(ui.GetLayout().InnerWidth()-4, ui.GetLayout().ContentHeight()/2)
 
 	return v, tea.Batch(cmds...)
 }
@@ -198,6 +205,9 @@ func (v *ShowDetailView) View() string {
 	)
 
 	mainLayout := v.RenderPosterAndInfo(infoSection)
+	v.listRect = ui.Rect{X: 2, Y: 3 + lipgloss.Height(mainLayout), Width: max(1, ui.GetLayout().InnerWidth()-4)}
+	v.listRect.Height = max(4, ui.GetLayout().ContentHeight()-v.listRect.Y-4)
+	v.seasonList.SetSize(v.listRect.Width, v.listRect.Height)
 
 	listContent := lipgloss.NewStyle().
 		Border(lipgloss.NormalBorder(), true, false, false, false).

@@ -14,11 +14,13 @@ import (
 	tint "github.com/lrstanley/bubbletint"
 	"github.com/ygelfand/plexctl/internal/config"
 	"github.com/ygelfand/plexctl/internal/plex"
+	"github.com/ygelfand/plexctl/internal/tui/artwork"
 	"github.com/ygelfand/plexctl/internal/tui/player"
 	"github.com/ygelfand/plexctl/internal/tui/view"
 	"github.com/ygelfand/plexctl/internal/tui/view/detail"
 	tuiconfig "github.com/ygelfand/plexctl/internal/tui/widget/config"
 	"github.com/ygelfand/plexctl/internal/tui/widget/help"
+	"github.com/ygelfand/plexctl/internal/tui/widget/playback"
 	"github.com/ygelfand/plexctl/internal/tui/widget/resume"
 	tuisearch "github.com/ygelfand/plexctl/internal/tui/widget/search"
 	"github.com/ygelfand/plexctl/internal/tui/widget/settings"
@@ -183,12 +185,15 @@ func (c *Controller) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if navCmd, captured := c.navigator.Update(msg); captured {
 		return c, navCmd
 	}
+	if mouse, ok := msg.(tea.MouseMsg); ok {
+		return c.handleMouse(mouse)
+	}
 
 	switch msg := msg.(type) {
 	case ui.RequestPlayMsg:
-		return c, player.FetchAndPlay(msg.RatingKey, msg.TctMode)
+		return c, player.FetchAndPlay(msg.RatingKey, msg.Output)
 	case ui.ResumeChoiceMsg:
-		return c, c.navigator.Push(resume.NewResumeOverlayModel(msg.Metadata, msg.TctMode, c.theme))
+		return c, c.navigator.Push(resume.NewResumeOverlayModel(msg.Metadata, msg.Output, c.theme))
 	case ui.SelectMediaMsg:
 		return c, c.handleSelectMedia(msg)
 	case ui.JumpToDetailMsg:
@@ -237,15 +242,21 @@ func (c *Controller) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return c, c.navigator.Push(tuiconfig.NewConfigOverlayModel(c.data.Libraries))
 		case "h":
 			return c, c.tabManager.SetActive(0)
-		case "p", "ctrl+p":
-			tctMode := msg.String() == "ctrl+p"
+		case "p", "ctrl+p", "v":
+			output := config.VideoWindow
+			if msg.String() == "ctrl+p" {
+				output = config.Get().TerminalVideo
+			}
 			if provider, ok := c.tabManager.ActiveModel().(ui.PlayableProvider); ok {
 				meta := provider.GetSelectedMetadata()
 				if meta != nil && meta.RatingKey != nil {
+					if msg.String() == "v" {
+						return c, c.navigator.Push(playback.New(*meta.RatingKey, meta.Title, c.theme))
+					}
 					return c, func() tea.Msg {
 						return ui.RequestPlayMsg{
 							RatingKey: *meta.RatingKey,
-							TctMode:   tctMode,
+							Output:    output,
 						}
 					}
 				}
@@ -468,12 +479,17 @@ func (c *Controller) fullReload() tea.Cmd {
 
 func (c *Controller) showHelp() tea.Cmd {
 	keys := []ui.HelpKey{
+		{Key: "click", Desc: "Open posters, rows, navigation, and actions"},
+		{Key: "wheel", Desc: "Scroll under pointer; Shift+wheel browses a poster row"},
+		{Key: "right click", Desc: "Back / close dialog (Shift bypasses mouse capture)"},
 		{Key: "tab", Desc: "Switch Library"},
 		{Key: "h", Desc: "Home"},
 		{Key: "ctrl+s", Desc: "Global Settings"},
 		{Key: "ctrl+l", Desc: "Libraries"},
 		{Key: "u", Desc: "Switch User"},
 		{Key: "p", Desc: "Play Selected"},
+		{Key: "ctrl+p", Desc: "Play in Terminal"},
+		{Key: "v", Desc: "Terminal Playback (Kitty / Sixel / Text)"},
 		{Key: "x", Desc: "Stop Playback"},
 		{Key: "q", Desc: "Quit"},
 		{Key: "?", Desc: "Help"},
@@ -493,7 +509,7 @@ func (c *Controller) showHelp() tea.Cmd {
 func (c *Controller) View() string {
 	base := c.renderBaseView()
 	base = c.navigator.Render(base)
-	return c.alert.Render(base)
+	return artwork.Frame(c.alert.Render(base))
 }
 
 func (c *Controller) renderBaseView() string {
@@ -516,7 +532,7 @@ func (c *Controller) renderBaseView() string {
 		Border(lipgloss.RoundedBorder(), true).
 		BorderForeground(c.theme.BrightBlack()).
 		Padding(0, 1).
-		Width(layout.MainAreaContentWidth()).
+		Width(layout.MainAreaContentWidth() + 2).
 		Height(contentHeight)
 
 	content := ""
@@ -524,6 +540,7 @@ func (c *Controller) renderBaseView() string {
 		content = model.View()
 	}
 
+	content = lipgloss.NewStyle().MaxWidth(layout.InnerWidth()).MaxHeight(contentHeight).Render(content)
 	body := windowStyle.Render(content)
 
 	if c.playerStatus.Active() {
@@ -538,9 +555,70 @@ func (c *Controller) renderBaseView() string {
 		Background(c.theme.BrightBlack()).
 		Foreground(c.theme.White()).
 		Padding(0, 1).
-		Render(" q: quit | tab: switch lib | h: home | ctrl+s: settings | ctrl+l: libs | u: user | p: play | x: stop ")
+		Render(c.footerText())
 
 	return lipgloss.JoinVertical(lipgloss.Left, mainArea, footer)
+}
+
+func (c *Controller) footerText() string {
+	text := "[p] Play | [v] Video | [V] View | [/] Search | [?] Help | [q] Quit"
+	if c.playerStatus.Active() {
+		text = "[p] Play | [v] Video | [x] Stop | [/] Search | [?] Help | [q] Quit"
+	}
+	return ui.Ellipsis(text, max(1, ui.GetLayout().TotalWidth()-2))
+}
+
+func (c *Controller) handleMouse(mouse tea.MouseMsg) (tea.Model, tea.Cmd) {
+	layout := ui.GetLayout()
+	if ui.RightClick(mouse) {
+		return c.Update(ui.KeyPress("esc"))
+	}
+	if mouse.X < ui.SidebarWidth && mouse.Y < layout.TotalHeight()-1 {
+		if delta := ui.WheelDelta(mouse); delta != 0 {
+			c.tabManager.navbar.Scroll(delta * 3)
+		} else if ui.LeftClick(mouse) {
+			if index := c.tabManager.navbar.ItemAt(mouse); index >= 0 {
+				return c, c.tabManager.SetActive(index)
+			}
+			if key := c.tabManager.navbar.ActionAt(mouse); key != "" {
+				return c.Update(ui.KeyPress(key))
+			}
+		}
+		return c, nil
+	}
+	if mouse.Y == layout.TotalHeight()-1 {
+		local := mouse
+		local.X-- // Footer padding.
+		local.Y = 0
+		if key := ui.ShortcutAt(c.footerText(), local); key != "" {
+			return c.Update(ui.KeyPress(key))
+		}
+		return c, nil
+	}
+	rect := ui.Rect{X: ui.SidebarTotalWidth + 2, Y: 1, Width: layout.InnerWidth(), Height: layout.ContentHeight()}
+	local, inside := rect.Local(mouse)
+	if !inside {
+		if c.playerStatus.Active() && ui.LeftClick(mouse) && mouse.X > ui.SidebarTotalWidth &&
+			mouse.Y >= rect.Height+2 && mouse.Y < layout.TotalHeight()-1 {
+			return c, c.player.TogglePause()
+		}
+		return c, nil
+	}
+	if model := c.tabManager.ActiveModel(); model != nil {
+		// Detail action bars appear at the bottom of their own view.
+		view := model.View()
+		if actions, ok := model.(interface{ ActionRows() int }); ok {
+			if local.Y >= lipgloss.Height(view)-actions.ActionRows() {
+				if key := ui.ShortcutAt(view, local); key != "" {
+					return c.Update(ui.KeyPress(key))
+				}
+			}
+		}
+		var cmd tea.Cmd
+		c.tabManager.tabModels[c.tabManager.activeTabIdx], cmd = model.Update(local)
+		return c, cmd
+	}
+	return c, nil
 }
 
 func (c *Controller) renderPlayer() string {

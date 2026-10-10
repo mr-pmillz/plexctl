@@ -10,7 +10,6 @@ type PlayerStatus struct {
 	Key      string
 	State    operations.State
 	NoReport bool
-	TctMode  bool
 }
 
 type ExternalSubtitle struct {

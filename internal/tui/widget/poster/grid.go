@@ -6,7 +6,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	tint "github.com/lrstanley/bubbletint"
-	"github.com/ygelfand/plexctl/internal/plex"
+	"github.com/ygelfand/plexctl/internal/tui/artwork"
 	"github.com/ygelfand/plexctl/internal/ui"
 )
 
@@ -27,7 +27,7 @@ func NewPosterGrid(metadata []components.Metadata, theme tint.Tint) *PosterGrid 
 			rk = *m.RatingKey
 		}
 		if rk != "" {
-			if cached, ok := plex.GetCachedPoster(rk, ui.PosterWidth); ok {
+			if cached, ok := artwork.Cached(rk, ui.PosterWidth); ok {
 				items[i].Poster = cached
 				items[i].Loading = false
 			}
@@ -57,7 +57,7 @@ func (m *PosterGrid) SetItems(metadata []components.Metadata) tea.Cmd {
 				rk = *meta.RatingKey
 			}
 			if rk != "" {
-				if cached, ok := plex.GetCachedPoster(rk, ui.PosterWidth); ok {
+				if cached, ok := artwork.Cached(rk, ui.PosterWidth); ok {
 					newItems[i].Poster = cached
 					newItems[i].Loading = false
 				}
@@ -65,6 +65,7 @@ func (m *PosterGrid) SetItems(metadata []components.Metadata) tea.Cmd {
 		}
 	}
 	m.Items = newItems
+	m.Cursor = min(m.Cursor, max(0, len(m.Items)-1))
 	return m.fetchVisible()
 }
 
@@ -104,12 +105,32 @@ func (m *PosterGrid) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		layout := ui.GetLayout()
 		m.viewport.Width = layout.MainAreaContentWidth()
 		m.viewport.Height = layout.ContentHeight()
+		m.View() // Reflow the viewport before restoring the selected row.
+		cmds = append(cmds, m.syncScroll())
 		cmds = append(cmds, m.fetchVisible())
 
 	case PosterLoadedMsg:
 		if msg.Index >= 0 && msg.Index < len(m.Items) {
 			m.Items[msg.Index].Poster = msg.View
 			m.Items[msg.Index].Loading = false
+		}
+	case tea.MouseMsg:
+		if _, inside := (ui.Rect{Width: m.viewport.Width, Height: m.viewport.Height}).Local(msg); !inside {
+			return m, nil
+		}
+		if delta := ui.WheelDelta(msg); delta != 0 {
+			m.viewport.SetYOffset(m.viewport.YOffset + delta*3)
+			return m, m.fetchVisible()
+		}
+		if ui.LeftClick(msg) {
+			cols := ui.GetLayout().PosterColumns()
+			column := msg.X / ui.PosterStepWidth
+			row := (msg.Y + m.viewport.YOffset) / ui.PosterTotalHeight
+			index := row*cols + column
+			if column < cols && msg.X%ui.PosterStepWidth < ui.PosterWidth+ui.PosterBorder && index < len(m.Items) {
+				m.Cursor = index
+				return m.Update(ui.KeyPress("enter"))
+			}
 		}
 
 	case tea.KeyMsg:

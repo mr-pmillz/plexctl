@@ -75,6 +75,12 @@ func init() {
 
 	rootCmd.PersistentFlags().StringVar(&sortCol, "sort", "", "column to sort by")
 	viper.BindPFlag("sort", rootCmd.PersistentFlags().Lookup("sort"))
+	rootCmd.PersistentFlags().String("terminal-video", "auto", "Terminal video renderer for Ctrl+P or play (auto, kitty, sixel, tct)")
+	viper.BindPFlag("terminal_video", rootCmd.PersistentFlags().Lookup("terminal-video"))
+	playCmd.MarkFlagsMutuallyExclusive("tct", "terminal-video")
+	rootCmd.RegisterFlagCompletionFunc("terminal-video", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+		return []string{"auto", "kitty", "sixel", "tct"}, cobra.ShellCompDirectiveNoFileComp
+	})
 }
 
 func initConfig() {
@@ -110,6 +116,10 @@ func initConfig() {
 	// Unmarshal the loaded config into our struct
 	if err := viper.Unmarshal(cfg); err != nil {
 		ui.RenderError(fmt.Errorf("failed to parse config: %w", err))
+		os.Exit(1)
+	}
+	if _, err := config.ParseTerminalVideo(string(cfg.TerminalVideo)); err != nil {
+		ui.RenderError(err)
 		os.Exit(1)
 	}
 

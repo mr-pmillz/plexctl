@@ -32,6 +32,11 @@ type Navbar struct {
 	iconType      config.IconType
 	nameFormat    config.LibraryNameFormat
 	customIcons   map[string]string
+	offset        int
+	followActive  bool
+	itemRows      []ui.Rect
+	actionRows    []string
+	actionTop     int
 }
 
 func NewNavbar(sections []NavSection, theme tint.Tint) *Navbar {
@@ -59,6 +64,23 @@ func NewNavbar(sections []NavSection, theme tint.Tint) *Navbar {
 
 func (n *Navbar) SetActive(index int) {
 	n.activeFlatIdx = index
+	n.followActive = true
+}
+
+func (n *Navbar) Scroll(lines int) { n.offset = max(0, n.offset+lines) }
+
+func (n *Navbar) ItemAt(mouse tea.MouseMsg) int {
+	for i, rect := range n.itemRows {
+		if _, ok := rect.Local(mouse); ok && mouse.Y < n.actionTop {
+			return i
+		}
+	}
+	return -1
+}
+
+func (n *Navbar) ActionAt(mouse tea.MouseMsg) string {
+	mouse.Y -= n.actionTop
+	return ui.ShortcutAt(strings.Join(n.actionRows, "\n"), mouse)
 }
 
 func (n *Navbar) SetCustomIcons(icons map[string]string) {
@@ -79,6 +101,7 @@ func (n *Navbar) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (n *Navbar) View() string {
 	var renderedLines []string
+	n.itemRows = nil
 
 	accent := ui.Accent(n.theme)
 
@@ -123,7 +146,9 @@ func (n *Navbar) View() string {
 		}
 
 		for _, item := range section.Items {
-			content := n.formatItem(item)
+			content := ui.Ellipsis(n.formatItem(item), max(1, n.Width-5))
+			y := lipgloss.Height(lipgloss.JoinVertical(lipgloss.Left, renderedLines...))
+			n.itemRows = append(n.itemRows, ui.Rect{Y: y, Width: n.Width, Height: 1})
 			if flatIdx == n.activeFlatIdx {
 				renderedLines = append(renderedLines, activeStyle.Render(content))
 			} else {
@@ -133,7 +158,31 @@ func (n *Navbar) View() string {
 		}
 	}
 
-	sidebarContent := lipgloss.JoinVertical(lipgloss.Left, renderedLines...)
+	lines := strings.Split(lipgloss.JoinVertical(lipgloss.Left, renderedLines...), "\n")
+	n.actionRows = []string{"", " [/] Search", " [ctrl+s] Settings", " [ctrl+l] Libraries", " [u] Switch user"}
+	if n.Height < 12 {
+		n.actionRows = nil
+	}
+	n.actionTop = max(1, n.Height-len(n.actionRows))
+	if n.followActive && n.activeFlatIdx >= 0 && n.activeFlatIdx < len(n.itemRows) {
+		y := n.itemRows[n.activeFlatIdx].Y
+		if y < n.offset {
+			n.offset = y
+		} else if y >= n.offset+n.actionTop {
+			n.offset = y - n.actionTop + 1
+		}
+		n.followActive = false
+	}
+	n.offset = min(n.offset, max(0, len(lines)-n.actionTop))
+	for i := range n.itemRows {
+		n.itemRows[i].Y -= n.offset
+	}
+	visible := append([]string(nil), lines[n.offset:min(len(lines), n.offset+n.actionTop)]...)
+	for len(visible) < n.actionTop {
+		visible = append(visible, "")
+	}
+	visible = append(visible, n.actionRows...)
+	sidebarContent := strings.Join(visible, "\n")
 
 	// Container style with right border and fixed height
 	return lipgloss.NewStyle().

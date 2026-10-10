@@ -5,7 +5,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	tint "github.com/lrstanley/bubbletint"
-	"github.com/ygelfand/plexctl/internal/plex"
+	"github.com/ygelfand/plexctl/internal/tui/artwork"
 	"github.com/ygelfand/plexctl/internal/ui"
 )
 
@@ -29,7 +29,7 @@ func NewPosterList(id int, title string, metadata []components.Metadata, theme t
 			rk = *m.RatingKey
 		}
 		if rk != "" {
-			if cached, ok := plex.GetCachedPoster(rk, ui.PosterWidth); ok {
+			if cached, ok := artwork.Cached(rk, ui.PosterWidth); ok {
 				items[i].Poster = cached
 				items[i].Loading = false
 			}
@@ -60,7 +60,7 @@ func (m *PosterList) SetItems(metadata []components.Metadata) tea.Cmd {
 				rk = *meta.RatingKey
 			}
 			if rk != "" {
-				if cached, ok := plex.GetCachedPoster(rk, ui.PosterWidth); ok {
+				if cached, ok := artwork.Cached(rk, ui.PosterWidth); ok {
 					newItems[i].Poster = cached
 					newItems[i].Loading = false
 				}
@@ -110,6 +110,23 @@ func (m *PosterList) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
+	case tea.MouseMsg:
+		if delta := ui.WheelDelta(msg); delta != 0 {
+			key := "right"
+			if delta < 0 {
+				key = "left"
+			}
+			return m.Update(ui.KeyPress(key))
+		}
+		titleHeight := lipgloss.Height(ui.TitleStyle(m.Theme).Render(m.Title))
+		if ui.LeftClick(msg) && msg.X >= 0 && msg.Y >= titleHeight && msg.Y < titleHeight+ui.PosterTotalHeight {
+			column := msg.X / ui.PosterStepWidth
+			index := m.Offset + column
+			if column < ui.GetLayout().PosterColumns() && msg.X%ui.PosterStepWidth < ui.PosterWidth+ui.PosterBorder && index < len(m.Items) {
+				m.Cursor = index
+				return m.Update(ui.KeyPress("enter"))
+			}
+		}
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "enter":

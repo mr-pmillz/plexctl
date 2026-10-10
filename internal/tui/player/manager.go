@@ -76,9 +76,12 @@ func (pm *PlayerManager) Status() PlayerStatus {
 	return pm.status
 }
 
-func (pm *PlayerManager) Play(url, title, ratingKey string, noReport bool, tctMode bool, startOffset int64, subtitles []ExternalSubtitle) tea.Cmd {
+func (pm *PlayerManager) Play(url, title, ratingKey string, noReport bool, output config.VideoOutput, startOffset int64, subtitles []ExternalSubtitle) tea.Cmd {
+	if output != config.VideoWindow {
+		return pm.playTerminal(url, title, ratingKey, noReport, output, startOffset, subtitles)
+	}
 	return func() tea.Msg {
-		slog.Debug("PlayerManager.Play start", "title", title, "rk", ratingKey, "tct", tctMode, "offset", startOffset)
+		slog.Debug("PlayerManager.Play start", "title", title, "rk", ratingKey, "offset", startOffset)
 		if err := pm.ensureMpv(); err != nil {
 			slog.Error("PlayerManager: mpv check failed", "error", err)
 			return err
@@ -91,11 +94,7 @@ func (pm *PlayerManager) Play(url, title, ratingKey string, noReport bool, tctMo
 		}
 
 		if pm.conn != nil {
-			if pm.status.TctMode != tctMode {
-				slog.Debug("PlayerManager: Mode changed, restarting mpv", "old", pm.status.TctMode, "new", tctMode)
-				pm.conn.Call("quit")
-				pm.cleanup()
-			} else if pm.status.Key != "" && pm.status.Key != ratingKey {
+			if pm.status.Key != "" && pm.status.Key != ratingKey {
 				slog.Debug("PlayerManager: different media, reporting progress first")
 				pm.reportProgressWithKey()
 			}
@@ -123,27 +122,27 @@ func (pm *PlayerManager) Play(url, title, ratingKey string, noReport bool, tctMo
 			}
 
 			if pm.conn == nil {
-				if err := pm.spawnMpv(tctMode); err != nil {
+				if err := pm.spawnMpv(); err != nil {
 					slog.Error("PlayerManager: spawn failed", "error", err)
 					return err
 				}
 			}
 		}
 
+		previous := pm.status
 		pm.status = PlayerStatus{
 			Title:    title,
 			File:     url,
 			Key:      ratingKey,
 			NoReport: noReport,
-			TctMode:  tctMode,
 			Time:     float64(startOffset) / 1000.0,
 		}
 		pm.status.Play()
 
-		startSec := float64(startOffset) / 1000.0
-		slog.Debug("PlayerManager: sending loadfile to mpv", "url", url, "startSec", startSec)
-
-		pm.conn.Call("loadfile", url, "replace", "-1", fmt.Sprintf("start=%.3f", startSec))
+		if err := loadWindowMedia(pm.socketPath, url, startOffset); err != nil {
+			pm.status = previous
+			return err
+		}
 		pm.conn.Call("set_property", "pause", false)
 		pm.conn.Call("set_property", "force-media-title", title)
 		pm.conn.Call("set_property", "user-data/plex-rating-key", ratingKey)
@@ -247,7 +246,12 @@ func (pm *PlayerManager) PollUpdates() tea.Cmd {
 }
 
 func (pm *PlayerManager) sendUpdate() {
-	pm.updates <- PlayerStatusMsg{}
+	// Updates are notifications to read the latest status. Coalesce them while
+	// Bubble Tea is suspended for terminal playback so the monitor cannot block.
+	select {
+	case pm.updates <- PlayerStatusMsg{}:
+	default:
+	}
 }
 
 func (pm *PlayerManager) WaitForUpdates() tea.Cmd {
@@ -286,23 +290,11 @@ func (pm *PlayerManager) socketExists() bool {
 	return err == nil
 }
 
-func (pm *PlayerManager) spawnMpv(tctMode bool) error {
-	args := []string{"--idle", "--no-resume-playback", fmt.Sprintf("--input-ipc-server=%s", pm.socketPath)}
-	if tctMode {
-		args = append(args, "-vo", "tct", "--really-quiet", "--vo-tct-buffering=frame")
-		if config.IsTUI {
-			args = append(args, "--vo-tct-height=40")
-		}
-	} else {
-		args = append(args, "--force-window=yes")
-	}
+func (pm *PlayerManager) spawnMpv() error {
+	args := []string{"--idle", "--no-resume-playback", fmt.Sprintf("--input-ipc-server=%s", pm.socketPath), "--force-window=yes"}
 
 	slog.Debug("PlayerManager: spawning mpv", "args", args)
 	cmd := exec.Command("mpv", args...)
-	if tctMode {
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-	}
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start mpv: %w", err)
@@ -487,27 +479,31 @@ func (pm *PlayerManager) cleanup() {
 
 func (pm *PlayerManager) reportProgressWithKey() {
 	pm.sendUpdate()
-	if pm.status.NoReport || pm.status.Key == "" {
+	reportProgress(context.Background(), pm.status)
+}
+
+func reportProgress(ctx context.Context, status PlayerStatus) {
+	if status.NoReport || status.Key == "" {
 		return
 	}
 
-	timePos := int64(pm.status.Time * 1000)
-	duration := int64(pm.status.Duration * 1000)
+	timePos := int64(status.Time * 1000)
+	duration := int64(status.Duration * 1000)
 
 	client, err := plex.NewClient()
 	if err != nil {
 		return
 	}
 
-	st := operations.State(pm.status.State)
+	st := status.State
 	forNow := "PlexCTL"
 	req := operations.ReportRequest{
 		State:     &st,
 		Time:      &timePos,
 		Duration:  &duration,
-		Key:       &pm.status.Key,
-		RatingKey: &pm.status.Key,
+		Key:       &status.Key,
+		RatingKey: &status.Key,
 		Device:    &forNow,
 	}
-	_, _ = client.SDK.Timeline.Report(context.Background(), req)
+	_, _ = client.SDK.Timeline.Report(ctx, req)
 }
