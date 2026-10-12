@@ -13,6 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	tint "github.com/lrstanley/bubbletint"
+	"github.com/ygelfand/plexctl/internal/config"
 	"github.com/ygelfand/plexctl/internal/plex"
 	"github.com/ygelfand/plexctl/internal/tui/widget/poster"
 	"github.com/ygelfand/plexctl/internal/ui"
@@ -31,11 +32,11 @@ type MusicDetailView struct {
 	jumpNote   string
 }
 
-func NewMusicDetailView(ratingKey string, theme tint.Tint) *MusicDetailView {
+func NewMusicDetailView(ratingKey string, theme tint.Tint, servers ...config.ServerTarget) *MusicDetailView {
 	items := createBaseDetailList()
 	items.Paginator.Type = paginator.Arabic
-	return &MusicDetailView{DetailBase: NewDetailBase(ratingKey, theme), items: items,
-		albums: poster.NewPosterGrid(nil, theme)}
+	return &MusicDetailView{DetailBase: NewDetailBase(ratingKey, theme, servers...), items: items,
+		albums: poster.NewPosterGrid(nil, theme, servers...)}
 }
 
 func (v *MusicDetailView) Init() tea.Cmd { return v.fetchData }
@@ -49,20 +50,20 @@ func (v *MusicDetailView) Refresh() tea.Cmd {
 }
 
 func (v *MusicDetailView) fetchData() tea.Msg {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(v.Server.Context(context.Background()), 30*time.Second)
 	defer cancel()
 	meta, err := plex.GetMetadata(ctx, v.RatingKey, true)
 	if err != nil {
-		return err
+		return v.dataError(err)
 	}
 	var children []components.Metadata
 	if meta.Type == "artist" || meta.Type == "album" {
 		children, err = plex.GetChildren(ctx, v.RatingKey)
 		if err != nil {
-			return err
+			return v.dataError(err)
 		}
 	}
-	return detailDataMsg{metadata: meta, children: children}
+	return detailDataMsg{serverID: v.Server.CacheNamespace(), ratingKey: v.RatingKey, metadata: meta, children: children}
 }
 
 func (v *MusicDetailView) GetSelectedMetadata() *components.Metadata {
@@ -133,7 +134,7 @@ func (v *MusicDetailView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if v.selected != nil {
 		if _, back := msg.(BackMsg); back && v.selected.IsAtRoot() {
 			v.selected = nil
-			return v, tea.Batch(v.albums.Init(), fetchPoster(v.Metadata, v.Width))
+			return v, tea.Batch(v.albums.Init(), fetchPoster(v.Metadata, v.Width, v.Server))
 		}
 		_, cmd := v.selected.Update(msg)
 		return v, cmd
@@ -158,6 +159,9 @@ func (v *MusicDetailView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	switch msg := msg.(type) {
 	case detailDataMsg:
+		if !v.Accepts(msg) {
+			return v, nil
+		}
 		if msg.metadata != nil && msg.metadata.RatingKey != nil && *msg.metadata.RatingKey != v.RatingKey {
 			return v, nil
 		}
@@ -184,7 +188,7 @@ func (v *MusicDetailView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return v, cmd
 	case poster.ItemSelectedMsg:
 		if msg.Metadata.RatingKey != nil {
-			v.selected = NewMusicDetailView(*msg.Metadata.RatingKey, v.Theme)
+			v.selected = NewMusicDetailView(*msg.Metadata.RatingKey, v.Theme, v.Server)
 			return v, v.selected.Init()
 		}
 	case tea.WindowSizeMsg:
@@ -197,7 +201,7 @@ func (v *MusicDetailView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "enter":
 			if meta := v.GetSelectedMetadata(); meta != nil && meta.RatingKey != nil && meta.Type != "artist" {
-				v.selected = NewMusicDetailView(*meta.RatingKey, v.Theme)
+				v.selected = NewMusicDetailView(*meta.RatingKey, v.Theme, v.Server)
 				return v, v.selected.Init()
 			}
 		case "esc", "backspace":

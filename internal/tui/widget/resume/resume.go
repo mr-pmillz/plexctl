@@ -20,6 +20,7 @@ type ResumeDecisionMsg struct {
 }
 
 type ResumeOverlayModel struct {
+	server   config.ServerTarget
 	Metadata *components.Metadata
 	Output   config.VideoOutput
 	theme    tint.Tint
@@ -29,8 +30,8 @@ type ResumeOverlayModel struct {
 	options  [2]ui.Rect
 }
 
-func NewResumeOverlayModel(metadata *components.Metadata, output config.VideoOutput, theme tint.Tint) *ResumeOverlayModel {
-	return &ResumeOverlayModel{
+func NewResumeOverlayModel(metadata *components.Metadata, output config.VideoOutput, theme tint.Tint, servers ...config.ServerTarget) *ResumeOverlayModel {
+	return &ResumeOverlayModel{server: config.MediaServer(servers...),
 		Metadata: metadata,
 		Output:   output,
 		theme:    theme,
@@ -70,7 +71,7 @@ func (m *ResumeOverlayModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if resume && m.Metadata != nil && m.Metadata.ViewOffset != nil {
 				offset = int64(*m.Metadata.ViewOffset)
 			}
-			return nil, player.PlayMedia(m.Metadata, false, m.Output, offset)
+			return nil, player.PlayMedia(m.Metadata, false, m.Output, offset, m.server)
 		case "esc":
 			return nil, nil
 		}

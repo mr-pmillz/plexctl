@@ -1,6 +1,6 @@
 ## plexctl server discover
 
-Interactive discovery and selection of a Plex server
+Discover and select your own Plex server
 
 ```
 plexctl server discover [flags]

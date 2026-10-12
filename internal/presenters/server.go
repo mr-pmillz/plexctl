@@ -20,7 +20,7 @@ func (p *ServerListPresenter) Title() string {
 }
 
 func (p *ServerListPresenter) Headers() []string {
-	return []string{"ID", "NAME", "PRODUCT", "VERSION", "PLATFORM", "LAST SEEN"}
+	return []string{"ID", "NAME", "ACCESS", "PRODUCT", "VERSION", "PLATFORM", "LAST SEEN"}
 }
 
 func (p *ServerListPresenter) Rows() [][]string {
@@ -29,6 +29,7 @@ func (p *ServerListPresenter) Rows() [][]string {
 		rows = append(rows, []string{
 			d.ClientIdentifier,
 			d.Name,
+			serverAccess(d),
 			d.Product,
 			d.ProductVersion,
 			ui.PtrToString(d.Platform),
@@ -39,7 +40,18 @@ func (p *ServerListPresenter) Rows() [][]string {
 }
 
 func (p *ServerListPresenter) Raw() any {
-	return p.Devices
+	devices := append([]components.PlexDevice(nil), p.Devices...)
+	for i := range devices {
+		devices[i].AccessToken = ""
+	}
+	return devices
+}
+
+func serverAccess(d components.PlexDevice) string {
+	if d.Owned {
+		return "Owned"
+	}
+	return "Shared"
 }
 
 func (p *ServerListPresenter) SortableColumns() []string {

@@ -16,7 +16,7 @@ func Live(ctx context.Context, query string) ([]IndexEntry, error) {
 	if strings.TrimSpace(query) == "" {
 		return nil, nil
 	}
-	client, err := plex.NewClient()
+	client, err := plex.NewClientForContext(ctx)
 	if err != nil {
 		return nil, err
 	}

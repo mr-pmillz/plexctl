@@ -17,7 +17,6 @@ import (
 
 	"github.com/charmbracelet/x/ansi/kitty"
 	gopixels "github.com/saran13raj/go-pixels"
-	"github.com/ygelfand/plexctl/internal/config"
 	"github.com/ygelfand/plexctl/internal/plex"
 	"github.com/ygelfand/plexctl/internal/termgraphics"
 	"golang.org/x/image/draw"
@@ -59,8 +58,8 @@ func Open(output *os.File, enabled bool) (*Output, error) {
 }
 
 func key(ratingKey string, width int) string {
-	server, _, _ := config.Get().GetActiveServer()
-	return fmt.Sprintf("%s/%s/%d", server, ratingKey, width)
+	// Callers include the server and credential namespace in the artwork key.
+	return fmt.Sprintf("%s/%d", ratingKey, width)
 }
 
 func Cached(ratingKey string, width int) (string, bool) {

@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	tint "github.com/lrstanley/bubbletint"
 	"github.com/sahilm/fuzzy"
+	"github.com/ygelfand/plexctl/internal/config"
 	"github.com/ygelfand/plexctl/internal/search"
 	"github.com/ygelfand/plexctl/internal/ui"
 )
@@ -34,6 +35,7 @@ func (i searchResultItem) Description() string {
 func (i searchResultItem) FilterValue() string { return i.entry.Title }
 
 type SearchOverlayModel struct {
+	server     config.ServerTarget
 	textInput  textinput.Model
 	list       list.Model
 	width      int
@@ -56,7 +58,8 @@ type resultsMsg struct {
 	err     error
 }
 
-func NewSearchOverlayModel(theme tint.Tint) *SearchOverlayModel {
+func NewSearchOverlayModel(theme tint.Tint, servers ...config.ServerTarget) *SearchOverlayModel {
+	server := config.MediaServer(servers...)
 	ti := textinput.New()
 	ti.Placeholder = "Artists, albums, tracks, movies..."
 	ti.Focus()
@@ -68,10 +71,12 @@ func NewSearchOverlayModel(theme tint.Tint) *SearchOverlayModel {
 	l.SetFilteringEnabled(false)
 	l.KeyMap.Quit.SetKeys("esc")
 
-	idx := search.GetIndex()
-	entries, _ := idx.Snapshot()
+	var entries []search.IndexEntry
+	if server.CacheNamespace() == config.Get().MediaCacheNamespace() {
+		entries, _ = search.GetIndex().Snapshot()
+	}
 
-	return &SearchOverlayModel{
+	return &SearchOverlayModel{server: server,
 		textInput:  ti,
 		list:       l,
 		theme:      theme,
@@ -91,7 +96,7 @@ func (m *SearchOverlayModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.id != m.queryID {
 			return m, nil
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(m.server.Context(context.Background()), 10*time.Second)
 		m.cancel = cancel
 		query, id := m.textInput.Value(), m.queryID
 		return m, func() tea.Msg {
@@ -133,7 +138,7 @@ func (m *SearchOverlayModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				item := m.list.SelectedItem().(searchResultItem)
 				m.Close()
 				return nil, func() tea.Msg {
-					return ui.SelectMediaMsg{
+					return ui.SelectMediaMsg{Server: m.server,
 						RatingKey: item.entry.RatingKey,
 						Type:      item.entry.Type,
 						SectionID: item.entry.SectionID,
@@ -209,7 +214,7 @@ func (m *SearchOverlayModel) View() string {
 		Padding(1, 2).
 		Background(lipgloss.Color("#111111"))
 
-	status := "Search your entire library · [enter] Open · [esc] Back"
+	status := "Search " + m.server.Name + " · [enter] Open · [esc] Back"
 	switch {
 	case m.loading:
 		status = "Searching Plex…"

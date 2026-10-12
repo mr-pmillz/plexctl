@@ -5,11 +5,13 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	tint "github.com/lrstanley/bubbletint"
+	"github.com/ygelfand/plexctl/internal/config"
 	"github.com/ygelfand/plexctl/internal/tui/artwork"
 	"github.com/ygelfand/plexctl/internal/ui"
 )
 
 type PosterList struct {
+	server config.ServerTarget
 	ID     int
 	Title  string
 	Items  []*PosterItem
@@ -19,7 +21,8 @@ type PosterList struct {
 	Active bool
 }
 
-func NewPosterList(id int, title string, metadata []components.Metadata, theme tint.Tint) *PosterList {
+func NewPosterList(id int, title string, metadata []components.Metadata, theme tint.Tint, servers ...config.ServerTarget) *PosterList {
+	server := config.MediaServer(servers...)
 	items := make([]*PosterItem, len(metadata))
 	for i, m := range metadata {
 		items[i] = &PosterItem{Metadata: m, Loading: true}
@@ -29,7 +32,7 @@ func NewPosterList(id int, title string, metadata []components.Metadata, theme t
 			rk = *m.RatingKey
 		}
 		if rk != "" {
-			if cached, ok := artwork.Cached(rk, ui.PosterWidth); ok {
+			if cached, ok := artwork.Cached(server.CacheNamespace()+"/"+rk, ui.PosterWidth); ok {
 				items[i].Poster = cached
 				items[i].Loading = false
 			}
@@ -37,10 +40,11 @@ func NewPosterList(id int, title string, metadata []components.Metadata, theme t
 	}
 
 	return &PosterList{
-		ID:    id,
-		Title: title,
-		Items: items,
-		Theme: theme,
+		server: server,
+		ID:     id,
+		Title:  title,
+		Items:  items,
+		Theme:  theme,
 	}
 }
 
@@ -60,7 +64,7 @@ func (m *PosterList) SetItems(metadata []components.Metadata) tea.Cmd {
 				rk = *meta.RatingKey
 			}
 			if rk != "" {
-				if cached, ok := artwork.Cached(rk, ui.PosterWidth); ok {
+				if cached, ok := artwork.Cached(m.server.CacheNamespace()+"/"+rk, ui.PosterWidth); ok {
 					newItems[i].Poster = cached
 					newItems[i].Loading = false
 				}
@@ -88,7 +92,7 @@ func (m *PosterList) fetchVisible() tea.Cmd {
 	for i := start; i < end; i++ {
 		if m.Items[i].Loading && !m.Items[i].Fetching {
 			m.Items[i].Fetching = true
-			cmds = append(cmds, FetchPoster(m.ID, i, m.Items[i].Metadata))
+			cmds = append(cmds, FetchPoster(m.ID, i, m.Items[i].Metadata, m.server))
 		}
 	}
 	return tea.Batch(cmds...)
@@ -97,6 +101,9 @@ func (m *PosterList) fetchVisible() tea.Cmd {
 func (m *PosterList) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case PosterLoadedMsg:
+		if msg.ServerID != "" && msg.ServerID != m.server.CacheNamespace() {
+			return m, nil
+		}
 		if msg.ListID == m.ID && msg.Index >= 0 && msg.Index < len(m.Items) {
 			if msg.RatingKey != ui.PtrToString(m.Items[msg.Index].Metadata.RatingKey) {
 				return m, nil

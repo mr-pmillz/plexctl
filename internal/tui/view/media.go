@@ -31,6 +31,7 @@ const (
 )
 
 type MediaView struct {
+	server      config.ServerTarget
 	sectionID   string
 	title       string
 	table       ui.Table
@@ -55,7 +56,8 @@ type MediaView struct {
 
 var pageRequestID atomic.Uint64
 
-func NewMediaView(sectionID, title string, theme tint.Tint) *MediaView {
+func NewMediaView(sectionID, title string, theme tint.Tint, servers ...config.ServerTarget) *MediaView {
+	serverTarget := config.MediaServer(servers...)
 	columns := []table.Column{
 		{Title: "W", Width: 3},
 		{Title: "TITLE", Width: 45},
@@ -76,7 +78,7 @@ func NewMediaView(sectionID, title string, theme tint.Tint) *MediaView {
 	}
 
 	_, server, ok := cfg.GetActiveServer()
-	if ok {
+	if ok && serverTarget.ID == cfg.DefaultServer {
 		if opts, ok := server.Libraries.Settings[sectionID]; ok && opts.ViewMode != "" {
 			mode = opts.ViewMode
 		}
@@ -88,10 +90,11 @@ func NewMediaView(sectionID, title string, theme tint.Tint) *MediaView {
 	}
 
 	return &MediaView{
+		server:      serverTarget,
 		sectionID:   sectionID,
 		title:       title,
 		table:       t,
-		posterGrid:  poster.NewPosterGrid(nil, theme),
+		posterGrid:  poster.NewPosterGrid(nil, theme, serverTarget),
 		theme:       theme,
 		viewMode:    vMode,
 		allMetadata: []components.Metadata{},
@@ -132,18 +135,17 @@ func (v *MediaView) fetchPage(start int) tea.Cmd {
 	sectionID, requestID := v.sectionID, pageRequestID.Add(1)
 	v.requestID = requestID
 	return func() tea.Msg {
-		page := ui.MediaPageMsg{SectionID: sectionID, RequestID: requestID, Start: start, Total: -1}
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		page := ui.MediaPageMsg{ServerID: v.server.ID, SectionID: sectionID, RequestID: requestID, Start: start, Total: -1}
+		ctx, cancel := context.WithTimeout(v.server.Context(context.Background()), 30*time.Second)
 		defer cancel()
 		slog.Debug("MediaView: fetchPage started", "section", sectionID, "start", start)
-		client, err := plex.NewClient()
+		client, err := plex.NewClientForContext(ctx)
 		if err != nil {
 			page.Err = err
 			return page
 		}
 
 		cfg := config.Get()
-		serverID, _, _ := cfg.GetActiveServer()
 		cm, _ := cache.Get(cfg.CacheDir)
 
 		req := operations.ListContentRequest{
@@ -154,7 +156,7 @@ func (v *MediaView) fetchPage(start int) tea.Cmd {
 		}
 
 		var body components.MediaContainerWithMetadata
-		err = cache.AutoCache(cm, serverID, req, plex.LibraryCacheTTL, &body, func() (*components.MediaContainerWithMetadata, error) {
+		err = cache.AutoCache(cm, v.server.CacheNamespace(), req, plex.LibraryCacheTTL, &body, func() (*components.MediaContainerWithMetadata, error) {
 			res, err := client.SDK.Content.ListContent(ctx, req)
 			if err != nil {
 				return nil, err
@@ -182,6 +184,9 @@ func (v *MediaView) fetchPage(start int) tea.Cmd {
 }
 
 func (v *MediaView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if _, ok := msg.(detail.DataMsg); ok && !v.details.Active() {
+		return v, nil
+	}
 	if posterMsg, ok := msg.(poster.PosterLoadedMsg); ok {
 		v.posterGrid.Update(posterMsg)
 	}
@@ -229,7 +234,7 @@ func (v *MediaView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		ui.UpdateTableTheme(&v.table, v.contentRect.Width, ui.GetLayout().TotalHeight())
 		v.table.SetHeight(v.contentRect.Height)
 	case ui.MediaPageMsg:
-		if msg.SectionID != v.sectionID || msg.RequestID != v.requestID || msg.Start != v.loadedItems {
+		if (msg.ServerID != "" && msg.ServerID != v.server.ID) || msg.SectionID != v.sectionID || msg.RequestID != v.requestID || msg.Start != v.loadedItems {
 			return v, nil
 		}
 		v.isLoading = false
@@ -281,7 +286,7 @@ func (v *MediaView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				v.table.SetCursor(v.posterGrid.Cursor)
 			}
 
-			if ok {
+			if ok && id == v.server.ID {
 				if server.Libraries.Settings == nil {
 					server.Libraries.Settings = make(map[string]config.LibraryOptions)
 				}
@@ -453,15 +458,15 @@ func (v *MediaView) ShowDetail(ratingKey, mediaType string) tea.Cmd {
 	var dv tea.Model
 	switch mediaType {
 	case "show":
-		dv = detail.NewShowDetailView(ratingKey, v.theme)
+		dv = detail.NewShowDetailView(ratingKey, v.theme, v.server)
 	case "season":
-		dv = detail.NewSeasonDetailView(ratingKey, v.theme)
+		dv = detail.NewSeasonDetailView(ratingKey, v.theme, v.server)
 	case "episode":
-		dv = detail.NewEpisodeDetailView(ratingKey, v.theme)
+		dv = detail.NewEpisodeDetailView(ratingKey, v.theme, v.server)
 	case "artist", "album", "track":
-		dv = detail.NewMusicDetailView(ratingKey, v.theme)
+		dv = detail.NewMusicDetailView(ratingKey, v.theme, v.server)
 	default:
-		dv = detail.NewMovieDetailView(ratingKey, v.theme)
+		dv = detail.NewMovieDetailView(ratingKey, v.theme, v.server)
 	}
 
 	layout := ui.GetLayout()
@@ -524,6 +529,9 @@ func (v *MediaView) View() string {
 		status = "Loading…"
 	}
 	footer := count + " · [g] A–Z"
+	if v.server.Shared {
+		footer = "Shared · " + v.title + " · " + footer
+	}
 	if status != "" {
 		footer += " · " + status
 	}
@@ -543,3 +551,5 @@ func (v *MediaView) syncTableRows() {
 	}
 	v.table.SetRows(rows)
 }
+
+func (v *MediaView) MediaServer() config.ServerTarget { return v.server }

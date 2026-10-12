@@ -15,15 +15,14 @@ import (
 	"github.com/ygelfand/plexctl/internal/ui"
 )
 
-func PlayMedia(metadata *components.Metadata, noReport bool, output config.VideoOutput, startOffset int64) tea.Cmd {
+func PlayMedia(metadata *components.Metadata, noReport bool, output config.VideoOutput, startOffset int64, servers ...config.ServerTarget) tea.Cmd {
+	server := config.MediaServer(servers...)
 	part := plex.PlayablePart(metadata)
 	if part == nil {
 		return func() tea.Msg { return fmt.Errorf("no playable media found") }
 	}
 
-	cfg := config.Get()
-	_, serverCfg, ok := cfg.GetActiveServer()
-	if !ok {
+	if server.URL == "" {
 		return func() tea.Msg { return fmt.Errorf("no active server") }
 	}
 
@@ -31,8 +30,8 @@ func PlayMedia(metadata *components.Metadata, noReport bool, output config.Video
 	if strings.Contains(part.Key, "?") {
 		separator = "&"
 	}
-	token := url.QueryEscape(cfg.ServerToken())
-	playURL := fmt.Sprintf("%s%s%sX-Plex-Token=%s", serverCfg.URL, part.Key, separator, token)
+	token := url.QueryEscape(server.Token)
+	playURL := fmt.Sprintf("%s%s%sX-Plex-Token=%s", server.URL, part.Key, separator, token)
 
 	var subtitles []ExternalSubtitle
 	for _, stream := range part.Stream {
@@ -41,7 +40,7 @@ func PlayMedia(metadata *components.Metadata, noReport bool, output config.Video
 			if strings.Contains(stream.Key, "?") {
 				sep = "&"
 			}
-			subURL := fmt.Sprintf("%s%s%sX-Plex-Token=%s", serverCfg.URL, stream.Key, sep, token)
+			subURL := fmt.Sprintf("%s%s%sX-Plex-Token=%s", server.URL, stream.Key, sep, token)
 			lang := ""
 			if stream.LanguageCode != nil {
 				lang = *stream.LanguageCode
@@ -68,13 +67,14 @@ func PlayMedia(metadata *components.Metadata, noReport bool, output config.Video
 		title = "Trailer: " + title
 	}
 
-	return GetPlayerManager().Play(playURL, title, rk, noReport, output, startOffset, subtitles)
+	return GetPlayerManager().Play(playURL, title, rk, noReport, output, startOffset, subtitles, server)
 }
 
 // FetchAndPlay handles the full playback logic: fetch full metadata, check for resume, then play
-func FetchAndPlay(ratingKey string, output config.VideoOutput) tea.Cmd {
+func FetchAndPlay(ratingKey string, output config.VideoOutput, servers ...config.ServerTarget) tea.Cmd {
+	server := config.MediaServer(servers...)
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(server.Context(context.Background()), 30*time.Second)
 		defer cancel()
 		meta, err := plex.GetMetadata(ctx, ratingKey, true)
 		if err != nil {
@@ -86,13 +86,13 @@ func FetchAndPlay(ratingKey string, output config.VideoOutput) tea.Cmd {
 		}
 
 		if meta.ViewOffset != nil && *meta.ViewOffset > 0 {
-			return ui.ResumeChoiceMsg{
+			return ui.ResumeChoiceMsg{Server: server,
 				Metadata: meta,
 				Output:   output,
 			}
 		}
 
-		cmd := PlayMedia(meta, false, output, 0)
+		cmd := PlayMedia(meta, false, output, 0, server)
 		if cmd != nil {
 			return cmd()
 		}
@@ -101,7 +101,8 @@ func FetchAndPlay(ratingKey string, output config.VideoOutput) tea.Cmd {
 }
 
 // FetchAndPlayTrailer handles finding and playing the correct trailer for a media item
-func FetchAndPlayTrailer(parentMeta *components.Metadata, output config.VideoOutput) tea.Cmd {
+func FetchAndPlayTrailer(parentMeta *components.Metadata, output config.VideoOutput, servers ...config.ServerTarget) tea.Cmd {
+	server := config.MediaServer(servers...)
 	return func() tea.Msg {
 		targetKey := ""
 		if parentMeta.PrimaryExtraKey != nil {
@@ -127,12 +128,12 @@ func FetchAndPlayTrailer(parentMeta *components.Metadata, output config.VideoOut
 
 		slog.Debug("FetchAndPlayTrailer: Resolved trailer key", "parent", parentMeta.Title, "target", ratingKey)
 
-		meta, err := plex.GetMetadata(context.Background(), ratingKey, false)
+		meta, err := plex.GetMetadata(server.Context(context.Background()), ratingKey, false)
 		if err != nil {
 			return err
 		}
 
-		cmd := PlayMedia(meta, true, output, 0)
+		cmd := PlayMedia(meta, true, output, 0, server)
 		if cmd != nil {
 			return cmd()
 		}

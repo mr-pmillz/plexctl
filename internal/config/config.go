@@ -87,14 +87,18 @@ type LibraryConfig struct {
 }
 
 type Server struct {
-	Name      string        `mapstructure:"name" yaml:"name"`
-	URL       string        `mapstructure:"url" yaml:"url"`
-	Libraries LibraryConfig `mapstructure:"libraries" yaml:"libraries"`
+	Name        string        `mapstructure:"name" yaml:"name"`
+	URL         string        `mapstructure:"url" yaml:"url"`
+	Shared      bool          `mapstructure:"shared" yaml:"shared,omitempty"`
+	AccessToken string        `mapstructure:"access_token" yaml:"access_token,omitempty" json:"-"`
+	TokenSource string        `mapstructure:"token_source" yaml:"token_source,omitempty" json:"-"`
+	Libraries   LibraryConfig `mapstructure:"libraries" yaml:"libraries"`
 }
 
 type HomeUser struct {
 	AuthToken   string `mapstructure:"auth_token" yaml:"auth_token"`     // V2 Switch User Token
 	AccessToken string `mapstructure:"access_token" yaml:"access_token"` // Server-specific Access Token
+	ServerID    string `mapstructure:"server_id" yaml:"server_id,omitempty"`
 }
 
 // Config holds the global configuration for plexctl
@@ -254,16 +258,23 @@ func (c *Config) GetActiveServer() (string, Server, bool) {
 func (c *Config) SetDefaultServer(idOrName string) error {
 	// Try ID first
 	if _, ok := c.Servers[idOrName]; ok {
-		c.DefaultServer = idOrName
+		c.selectServer(idOrName)
 		return nil
 	}
 
 	// Try Name
+	var matchedID string
 	for id, srv := range c.Servers {
 		if srv.Name == idOrName {
-			c.DefaultServer = id
-			return nil
+			if matchedID != "" {
+				return fmt.Errorf("multiple servers named %q; use the server ID", idOrName)
+			}
+			matchedID = id
 		}
+	}
+	if matchedID != "" {
+		c.selectServer(matchedID)
+		return nil
 	}
 
 	return fmt.Errorf("server '%s' not found in configuration", idOrName)
@@ -271,8 +282,20 @@ func (c *Config) SetDefaultServer(idOrName string) error {
 
 // AddServer adds or updates a server configuration and optionally sets it as default
 func (c *Config) AddServer(id string, config Server, setAsDefault bool) {
+	if c.Servers == nil {
+		c.Servers = make(map[string]Server)
+	}
 	c.Servers[id] = config
 	if setAsDefault {
-		c.DefaultServer = id
+		c.selectServer(id)
 	}
+}
+
+func (c *Config) selectServer(id string) {
+	if id != c.DefaultServer {
+		// Legacy Home credentials belong only to the previously selected server.
+		c.HomeUser.AccessToken = ""
+		c.HomeUser.ServerID = ""
+	}
+	c.DefaultServer = id
 }

@@ -25,6 +25,7 @@ var choices = []choice{
 }
 
 type Model struct {
+	server    config.ServerTarget
 	ratingKey string
 	title     string
 	theme     tint.Tint
@@ -34,8 +35,8 @@ type Model struct {
 	music     bool
 }
 
-func New(ratingKey, title string, theme tint.Tint) *Model {
-	m := &Model{ratingKey: ratingKey, title: title, theme: theme, width: 58, choices: choices}
+func New(ratingKey, title string, theme tint.Tint, servers ...config.ServerTarget) *Model {
+	m := &Model{server: config.MediaServer(servers...), ratingKey: ratingKey, title: title, theme: theme, width: 58, choices: choices}
 	for i, choice := range choices {
 		if choice.output == config.Get().TerminalVideo {
 			m.choice = i
@@ -44,8 +45,8 @@ func New(ratingKey, title string, theme tint.Tint) *Model {
 	return m
 }
 
-func NewMusic(ratingKey, title string, theme tint.Tint) *Model {
-	m := &Model{ratingKey: ratingKey, title: title, theme: theme, width: 58, music: true,
+func NewMusic(ratingKey, title string, theme tint.Tint, servers ...config.ServerTarget) *Model {
+	m := &Model{server: config.MediaServer(servers...), ratingKey: ratingKey, title: title, theme: theme, width: 58, music: true,
 		choices: []choice{{"In this terminal · audio + visualizer", config.AudioTerminal},
 			{"Separate player window", config.VideoWindow}}}
 	if config.Get().MusicOutput() == config.VideoWindow {
@@ -84,7 +85,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			output := m.choices[m.choice].output
 			return nil, func() tea.Msg {
-				return ui.RequestPlayMsg{RatingKey: m.ratingKey, Output: output}
+				return ui.RequestPlayMsg{Server: m.server, RatingKey: m.ratingKey, Output: output}
 			}
 		}
 	}

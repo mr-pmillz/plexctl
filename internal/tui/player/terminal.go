@@ -40,7 +40,8 @@ type terminalPlayback struct {
 
 var _ tea.ExecCommand = (*terminalPlayback)(nil)
 
-func (pm *PlayerManager) playTerminal(url, title, ratingKey string, noReport bool, preference config.VideoOutput, startOffset int64, subtitles []ExternalSubtitle) tea.Cmd {
+func (pm *PlayerManager) playTerminal(url, title, ratingKey string, noReport bool, preference config.VideoOutput, startOffset int64, subtitles []ExternalSubtitle, servers ...config.ServerTarget) tea.Cmd {
+	server := config.MediaServer(servers...)
 	return func() tea.Msg {
 		if !config.IsTUI {
 			termgraphics.Probe(os.Stdin, os.Stdout)
@@ -51,7 +52,7 @@ func (pm *PlayerManager) playTerminal(url, title, ratingKey string, noReport boo
 		}
 		playback := &terminalPlayback{
 			mpv: mpv, output: output, preference: preference, subtitles: subtitles, report: reportProgress,
-			status: PlayerStatus{
+			status: PlayerStatus{Server: server,
 				Title: title, File: url, Key: ratingKey, NoReport: noReport,
 				Time: float64(startOffset) / 1000,
 			},

@@ -18,18 +18,25 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	tint "github.com/lrstanley/bubbletint"
+	"github.com/ygelfand/plexctl/internal/config"
 	"github.com/ygelfand/plexctl/internal/plex"
 	"github.com/ygelfand/plexctl/internal/tui/artwork"
 	"github.com/ygelfand/plexctl/internal/ui"
 )
 
 // Shared Message Types
-type detailDataMsg struct {
-	metadata *components.Metadata
-	children []components.Metadata
+type detailDataMsg = DataMsg
+
+type DataMsg struct {
+	err       error
+	serverID  string
+	ratingKey string
+	metadata  *components.Metadata
+	children  []components.Metadata
 }
 
 type PosterDataMsg struct {
+	serverID  string
 	ratingKey string
 	width     int
 	view      string
@@ -64,7 +71,8 @@ func detailPosterWidth(metadata *components.Metadata) int {
 	return ui.DetailPosterWidth
 }
 
-func fetchPoster(metadata *components.Metadata, width int) tea.Cmd {
+func fetchPoster(metadata *components.Metadata, width int, servers ...config.ServerTarget) tea.Cmd {
+	server := config.MediaServer(servers...)
 	targetWidth := detailPosterWidth(metadata)
 	return func() tea.Msg {
 		if metadata == nil {
@@ -87,13 +95,13 @@ func fetchPoster(metadata *components.Metadata, width int) tea.Cmd {
 
 		// Check long-term cache for rendered string
 		if rk != "" {
-			if cached, ok := artwork.Cached(rk, targetWidth); ok {
-				return PosterDataMsg{ratingKey: rk, width: targetWidth, view: cached}
+			if cached, ok := artwork.Cached(server.CacheNamespace()+"/"+rk, targetWidth); ok {
+				return PosterDataMsg{serverID: server.CacheNamespace(), ratingKey: rk, width: targetWidth, view: cached}
 			}
 		}
 
 		start := time.Now()
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(server.Context(context.Background()), 10*time.Second)
 		defer cancel()
 		data, err := plex.GetImage(ctx, path)
 		if err != nil {
@@ -109,14 +117,14 @@ func fetchPoster(metadata *components.Metadata, width int) tea.Cmd {
 			return nil
 		}
 
-		imgStr, err := artwork.Render(rk, img, targetWidth, 0)
+		imgStr, err := artwork.Render(server.CacheNamespace()+"/"+rk, img, targetWidth, 0)
 		if err != nil {
 			slog.Error("fetchPoster render failed", "error", err)
 			return nil
 		}
 		slog.Debug("fetchPoster render complete", "duration", time.Since(start))
 
-		return PosterDataMsg{ratingKey: rk, width: targetWidth, view: imgStr}
+		return PosterDataMsg{serverID: server.CacheNamespace(), ratingKey: rk, width: targetWidth, view: imgStr}
 	}
 }
 

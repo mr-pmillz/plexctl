@@ -1,8 +1,12 @@
 package player
 
-import "github.com/LukeHagar/plexgo/models/operations"
+import (
+	"github.com/LukeHagar/plexgo/models/operations"
+	"github.com/ygelfand/plexctl/internal/config"
+)
 
 type PlayerStatus struct {
+	Server    config.ServerTarget
 	Time      float64
 	Duration  float64
 	Title     string

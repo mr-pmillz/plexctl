@@ -22,7 +22,7 @@ Manage Plex Server
 ### SEE ALSO
 
 * [plexctl](plexctl.md)	 - A robust CLI for managing your Plex Media Server
-* [plexctl server discover](plexctl_server_discover.md)	 - Interactive discovery and selection of a Plex server
+* [plexctl server discover](plexctl_server_discover.md)	 - Discover and select your own Plex server
 * [plexctl server list](plexctl_server_list.md)	 - List all available Plex servers from plex.tv
 * [plexctl server status](plexctl_server_status.md)	 - Get server status
 * [plexctl server use](plexctl_server_use.md)	 - Switch to a different configured server

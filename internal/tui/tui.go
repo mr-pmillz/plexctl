@@ -132,7 +132,11 @@ func (c *Controller) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return c, tea.Batch(cmds...)
-	case poster.PosterLoadedMsg, detail.PosterDataMsg:
+	case view.FriendsServersMsg, view.FriendsLibrariesMsg:
+		friends := c.tabManager.tabModels[c.tabManager.friendsIdx]
+		_, cmd := friends.Update(msg)
+		return c, cmd
+	case poster.PosterLoadedMsg, detail.PosterDataMsg, detail.DataMsg:
 		for _, model := range c.tabManager.tabModels {
 			if model != nil {
 				_, cmd := model.Update(msg)
@@ -141,15 +145,18 @@ func (c *Controller) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return c, tea.Batch(cmds...)
 	case ui.MediaPageMsg:
-		// A request belongs to its library even if the user changed tabs or
-		// opened a dialog while the server was responding.
+		// Request IDs and server IDs keep asynchronous replies with their view.
 		for _, model := range c.tabManager.tabModels {
-			if library, ok := model.(*view.MediaView); ok && library.GetSectionID() == msg.SectionID {
-				_, cmd := library.Update(msg)
-				return c, cmd
+			switch model := model.(type) {
+			case *view.MediaView:
+				_, cmd := model.Update(msg)
+				cmds = append(cmds, cmd)
+			case *view.FriendsView:
+				_, cmd := model.Update(msg)
+				cmds = append(cmds, cmd)
 			}
 		}
-		return c, nil
+		return c, tea.Batch(cmds...)
 	case tea.WindowSizeMsg:
 		ui.GetLayout().SetPlayerHeight(c.playerHeight(msg.Height))
 		ui.GetLayout().Update(msg.Width, msg.Height, c.playerStatus.Active())
@@ -234,9 +241,9 @@ func (c *Controller) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return c, nil
 	case ui.RequestPlayMsg:
-		return c, player.FetchAndPlay(msg.RatingKey, msg.Output)
+		return c, player.FetchAndPlay(msg.RatingKey, msg.Output, msg.Server)
 	case ui.ResumeChoiceMsg:
-		return c, c.navigator.Push(resume.NewResumeOverlayModel(msg.Metadata, msg.Output, c.theme))
+		return c, c.navigator.Push(resume.NewResumeOverlayModel(msg.Metadata, msg.Output, c.theme, msg.Server))
 	case ui.SelectMediaMsg:
 		return c, c.handleSelectMedia(msg)
 	case ui.JumpToDetailMsg:
@@ -279,7 +286,7 @@ func (c *Controller) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if meta != nil && meta.RatingKey != nil {
 					if config.IsMusic(meta.Type) {
 						if msg.String() == "v" {
-							return c, c.navigator.Push(playback.NewMusic(*meta.RatingKey, meta.Title, c.theme))
+							return c, c.navigator.Push(playback.NewMusic(*meta.RatingKey, meta.Title, c.theme, c.mediaServer()))
 						}
 						output = config.Get().MusicOutput()
 						if msg.String() == "ctrl+p" {
@@ -287,10 +294,11 @@ func (c *Controller) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 					}
 					if msg.String() == "v" {
-						return c, c.navigator.Push(playback.New(*meta.RatingKey, meta.Title, c.theme))
+						return c, c.navigator.Push(playback.New(*meta.RatingKey, meta.Title, c.theme, c.mediaServer()))
 					}
+					server := c.mediaServer()
 					return c, func() tea.Msg {
-						return ui.RequestPlayMsg{
+						return ui.RequestPlayMsg{Server: server,
 							RatingKey: *meta.RatingKey,
 							Output:    output,
 						}
@@ -315,7 +323,11 @@ func (c *Controller) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return c, c.musicControl(msg.String())
 			}
 		case "/":
-			return c, c.navigator.Push(tuisearch.NewSearchOverlayModel(c.theme))
+			server := c.mediaServer()
+			if server.ID == "" {
+				return c, c.alert.NewAlertCmd("error", "Choose a friend's server to search its shared libraries")
+			}
+			return c, c.navigator.Push(tuisearch.NewSearchOverlayModel(c.theme, server))
 		case "u":
 			return c, c.triggerUserSwitch()
 		case "shift+tab":
@@ -350,10 +362,11 @@ func (c *Controller) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (c *Controller) handleSelectMedia(msg ui.SelectMediaMsg) tea.Cmd {
+	server := config.MediaServer(msg.Server)
 	returnTabIdx := c.tabManager.activeTabIdx
-	if msg.SectionID != "" {
+	if msg.SectionID != "" || server.Shared {
 		return func() tea.Msg {
-			return ui.JumpToDetailMsg{
+			return ui.JumpToDetailMsg{Server: server,
 				SectionID:    msg.SectionID,
 				RatingKey:    msg.RatingKey,
 				Type:         msg.Type,
@@ -363,7 +376,7 @@ func (c *Controller) handleSelectMedia(msg ui.SelectMediaMsg) tea.Cmd {
 	}
 
 	return func() tea.Msg {
-		meta, err := plex.GetMetadata(context.Background(), msg.RatingKey, false)
+		meta, err := plex.GetMetadata(server.Context(context.Background()), msg.RatingKey, false)
 		if err != nil {
 			return err
 		}
@@ -376,7 +389,7 @@ func (c *Controller) handleSelectMedia(msg ui.SelectMediaMsg) tea.Cmd {
 			}
 		}
 		if sectionID != "" {
-			return ui.JumpToDetailMsg{
+			return ui.JumpToDetailMsg{Server: server,
 				SectionID:    sectionID,
 				RatingKey:    msg.RatingKey,
 				Type:         msg.Type,
@@ -388,6 +401,13 @@ func (c *Controller) handleSelectMedia(msg ui.SelectMediaMsg) tea.Cmd {
 }
 
 func (c *Controller) handleJumpToDetail(msg ui.JumpToDetailMsg) tea.Cmd {
+	if msg.Server.Shared {
+		friends := c.tabManager.tabModels[c.tabManager.friendsIdx].(*view.FriendsView)
+		c.returnTabIdx = -1
+		c.focusPane(paneContent)
+		c.tabManager.SetActive(c.tabManager.friendsIdx)
+		return friends.ShowDetail(msg)
+	}
 	slog.Debug("Controller: handleJumpToDetail", "key", msg.RatingKey, "type", msg.Type, "section", msg.SectionID)
 
 	// 1. If SectionID is specified, find that specific tab
@@ -479,6 +499,7 @@ func (c *Controller) handleSwitchUser(msg ui.SwitchUserMsg) tea.Cmd {
 		// 3. Save both tokens
 		cfg.HomeUser.AuthToken = res.UserPlexAccount.AuthToken
 		cfg.HomeUser.AccessToken = accessToken
+		cfg.HomeUser.ServerID = serverID
 		_ = cfg.Save()
 
 		slog.Info("TUI: User switched successfully")
@@ -733,4 +754,11 @@ func (c *Controller) renderPlayer() string {
 	)
 
 	return playerStyle.Render(lipgloss.JoinVertical(lipgloss.Left, title, row2))
+}
+
+func (c *Controller) mediaServer() config.ServerTarget {
+	if provider, ok := c.tabManager.ActiveModel().(ui.ServerProvider); ok {
+		return provider.MediaServer()
+	}
+	return config.Get().ServerTarget()
 }

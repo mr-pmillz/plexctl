@@ -3,6 +3,7 @@ package player
 import (
 	"context"
 	"fmt"
+	neturl "net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -74,13 +75,14 @@ func (pm *PlayerManager) VerifyConnection() bool {
 
 func (pm *PlayerManager) Play(
 	url, title, ratingKey string, noReport bool, output config.VideoOutput,
-	startOffset int64, subtitles []ExternalSubtitle,
+	startOffset int64, subtitles []ExternalSubtitle, servers ...config.ServerTarget,
 ) tea.Cmd {
+	server := config.MediaServer(servers...)
 	if output != config.VideoWindow && output != config.AudioTerminal {
-		return pm.playTerminal(url, title, ratingKey, noReport, output, startOffset, subtitles)
+		return pm.playTerminal(url, title, ratingKey, noReport, output, startOffset, subtitles, server)
 	}
 	return func() tea.Msg {
-		previous, err := pm.start(url, title, ratingKey, noReport, output, startOffset, subtitles)
+		previous, err := pm.start(url, title, ratingKey, noReport, output, startOffset, subtitles, server)
 		if err != nil {
 			return err
 		}
@@ -96,8 +98,9 @@ func (pm *PlayerManager) Play(
 
 func (pm *PlayerManager) start(
 	url, title, ratingKey string, noReport bool, output config.VideoOutput,
-	startOffset int64, subtitles []ExternalSubtitle,
+	startOffset int64, subtitles []ExternalSubtitle, servers ...config.ServerTarget,
 ) (PlayerStatus, error) {
+	server := config.MediaServer(servers...)
 	pm.ioMu.Lock()
 	defer pm.ioMu.Unlock()
 	previous := pm.Status()
@@ -123,13 +126,15 @@ func (pm *PlayerManager) start(
 	_ = pm.conn.call("set_property", "pause", false)
 	_ = pm.conn.call("set_property", "force-media-title", title)
 	_ = pm.conn.call("set_property", "user-data/plex-rating-key", ratingKey)
+	_ = pm.conn.call("set_property", "user-data/plex-server-id", server.ID)
+	_ = pm.conn.call("set_property", "user-data/plex-server-url", server.URL)
 	_ = pm.conn.call("set_property", "user-data/plex-title", title)
 	_ = pm.conn.call("set_property", "user-data/plex-no-report", noReport)
 	_ = pm.conn.call("set_property", "user-data/plex-audio-only", audioOnly)
 	for _, sub := range subtitles {
 		_ = pm.conn.call("sub-add", sub.URL, "auto", sub.Title, sub.Language)
 	}
-	pm.setStatus(PlayerStatus{
+	pm.setStatus(PlayerStatus{Server: server,
 		Title: title, File: url, Key: ratingKey, NoReport: noReport, AudioOnly: audioOnly,
 		Time: float64(startOffset) / 1000, State: operations.StatePlaying, Volume: previous.Volume,
 	})
@@ -239,6 +244,14 @@ func (pm *PlayerManager) Reconnect() tea.Cmd {
 		_ = conn.get("user-data/plex-no-report", &status.NoReport)
 		_ = conn.get("user-data/plex-audio-only", &status.AudioOnly)
 		_ = conn.get("path", &status.File)
+		_ = conn.get("user-data/plex-server-id", &status.Server.ID)
+		_ = conn.get("user-data/plex-server-url", &status.Server.URL)
+		if mediaURL, err := neturl.Parse(status.File); err == nil {
+			status.Server.Token = mediaURL.Query().Get("X-Plex-Token")
+		}
+		if status.Server.ID == "" || status.Server.URL == "" || status.Server.Token == "" {
+			status.NoReport = true // An older player cannot identify its originating server.
+		}
 		pm.setStatus(status)
 		pm.attach(conn)
 		return nil
@@ -420,7 +433,8 @@ func reportProgress(ctx context.Context, status PlayerStatus) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	client, err := plex.NewClient()
+	ctx = config.MediaServer(status.Server).Context(ctx)
+	client, err := plex.NewClientForContext(ctx)
 	if err != nil {
 		return
 	}

@@ -75,6 +75,7 @@ Pull requests run these checks and `govulncheck` in GitHub Actions.
 ## Features
 
 - **Interactive TUI**: Navigate your Plex library with ease.
+- **Friends Libraries**: Browse and search libraries shared with your Plex account from the sidebar.
 - **Fuzzy Search**: Find exactly what you're looking for instantly.
 - **Cross-Platform**: Supports macOS, Linux, and Windows.
 - **Flexible Output**: CLI commands support table, JSON, YAML, and CSV formats.
@@ -83,6 +84,12 @@ Pull requests run these checks and `govulncheck` in GitHub Actions.
 
 ### TUI (Interactive)
 Simply run `plexctl` to launch the interactive terminal interface.
+
+Choose your own Plex server during setup. **Friends Libraries → Browse** in the
+left sidebar discovers servers shared with your current Plex user. Open a friend,
+then a library to use the same poster/list views, details, and playback controls.
+Press **/** to search that friend's server, **Esc** to go back, and **r** on the
+friends list to refresh invitations. Your own library tabs remain available.
 
 Press **v** on a movie or episode to choose **Kitty**, **Sixel**, or **Text**
 playback. **Ctrl+P** starts terminal playback using your saved preference.

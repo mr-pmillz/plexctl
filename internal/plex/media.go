@@ -57,8 +57,8 @@ func SetCachedPoster(ratingKey string, width int, view string) {
 // GetMetadata retrieves full metadata for an item by its rating key. If force is true, cache is bypassed.
 func GetMetadata(ctx context.Context, ratingKey string, force bool) (*components.Metadata, error) {
 	cfg := config.Get()
-	serverID, _, ok := cfg.GetActiveServer()
-	if !ok {
+	server := config.ServerFromContext(ctx)
+	if server.URL == "" {
 		return nil, fmt.Errorf("no active server")
 	}
 
@@ -67,7 +67,7 @@ func GetMetadata(ctx context.Context, ratingKey string, force bool) (*components
 		return nil, err
 	}
 
-	client, err := NewClient()
+	client, err := NewClientForContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +83,7 @@ func GetMetadata(ctx context.Context, ratingKey string, force bool) (*components
 		ttl = 0
 	}
 
-	err = cache.AutoCache(cm, serverID, req, ttl, &body, func() (*components.MediaContainerWithMetadata, error) {
+	err = cache.AutoCache(cm, server.CacheNamespace(), req, ttl, &body, func() (*components.MediaContainerWithMetadata, error) {
 		res, err := client.SDK.Content.GetMetadataItem(ctx, req)
 		if err != nil {
 			return nil, err
@@ -111,8 +111,8 @@ func ptr[T any](v T) *T {
 // GetChildren retrieves children of an item (e.g. seasons of a show, or episodes of a season)
 func GetChildren(ctx context.Context, ratingKey string) ([]components.Metadata, error) {
 	cfg := config.Get()
-	serverID, serverCfg, ok := cfg.GetActiveServer()
-	if !ok {
+	server := config.ServerFromContext(ctx)
+	if server.URL == "" {
 		return nil, fmt.Errorf("no active server")
 	}
 
@@ -121,18 +121,18 @@ func GetChildren(ctx context.Context, ratingKey string) ([]components.Metadata, 
 		return nil, err
 	}
 
-	cacheKey := fmt.Sprintf("%s/children/%s", serverID, ratingKey)
+	cacheKey := fmt.Sprintf("%s/children/%s", server.CacheNamespace(), ratingKey)
 	var body components.MediaContainerWithMetadata
 	if err := cm.Get(cacheKey, &body); err == nil {
 		return body.MediaContainer.Metadata, nil
 	}
 
-	url := fmt.Sprintf("%s/library/metadata/%s/children", serverCfg.URL, ratingKey)
+	url := fmt.Sprintf("%s/library/metadata/%s/children", server.URL, ratingKey)
 	separator := "?"
 	if strings.Contains(url, "?") {
 		separator = "&"
 	}
-	url = fmt.Sprintf("%s%sX-Plex-Token=%s", url, separator, neturl.QueryEscape(cfg.ServerToken()))
+	url = fmt.Sprintf("%s%sX-Plex-Token=%s", url, separator, neturl.QueryEscape(server.Token))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -173,8 +173,8 @@ func GetChildren(ctx context.Context, ratingKey string) ([]components.Metadata, 
 // GetImage retrieves image data (thumb/poster) and caches it
 func GetImage(ctx context.Context, path string) ([]byte, error) {
 	cfg := config.Get()
-	serverID, serverCfg, ok := cfg.GetActiveServer()
-	if !ok {
+	server := config.ServerFromContext(ctx)
+	if server.URL == "" {
 		return nil, fmt.Errorf("no active server")
 	}
 
@@ -183,18 +183,18 @@ func GetImage(ctx context.Context, path string) ([]byte, error) {
 		return nil, err
 	}
 
-	cacheKey := fmt.Sprintf("%s/img/%s", serverID, path)
+	cacheKey := fmt.Sprintf("%s/img/%s", server.CacheNamespace(), path)
 	var data []byte
 	if err := cm.Get(cacheKey, &data); err == nil {
 		return data, nil
 	}
 
-	url := fmt.Sprintf("%s%s", serverCfg.URL, path)
+	url := fmt.Sprintf("%s%s", server.URL, path)
 	separator := "?"
 	if strings.Contains(url, "?") {
 		separator = "&"
 	}
-	url = fmt.Sprintf("%s%sX-Plex-Token=%s", url, separator, neturl.QueryEscape(cfg.ServerToken()))
+	url = fmt.Sprintf("%s%sX-Plex-Token=%s", url, separator, neturl.QueryEscape(server.Token))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -225,7 +225,7 @@ func GetImage(ctx context.Context, path string) ([]byte, error) {
 
 // GetHomeHubs retrieves all promoted hubs for the home screen
 func GetHomeHubs(ctx context.Context) ([]components.Hub, error) {
-	client, err := NewClient()
+	client, err := NewClientForContext(ctx)
 	if err != nil {
 		return nil, err
 	}

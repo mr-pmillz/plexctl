@@ -15,6 +15,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	tint "github.com/lrstanley/bubbletint"
+	"github.com/ygelfand/plexctl/internal/config"
 	"github.com/ygelfand/plexctl/internal/plex"
 	"github.com/ygelfand/plexctl/internal/tui/artwork"
 	"github.com/ygelfand/plexctl/internal/ui"
@@ -28,6 +29,7 @@ type PosterItem struct {
 }
 
 type PosterLoadedMsg struct {
+	ServerID  string
 	ListID    int
 	Index     int
 	View      string
@@ -39,17 +41,18 @@ type ItemSelectedMsg struct {
 }
 
 // FetchPoster returns a command to fetch and render a poster
-func FetchPoster(listID int, index int, metadata components.Metadata) tea.Cmd {
+func FetchPoster(listID int, index int, metadata components.Metadata, servers ...config.ServerTarget) tea.Cmd {
+	server := config.MediaServer(servers...)
 	return func() tea.Msg {
 		rk := ""
 		if metadata.RatingKey != nil {
 			rk = *metadata.RatingKey
 		}
-		result := PosterLoadedMsg{ListID: listID, Index: index, RatingKey: rk}
+		result := PosterLoadedMsg{ServerID: server.CacheNamespace(), ListID: listID, Index: index, RatingKey: rk}
 
 		if rk != "" {
-			if cached, ok := artwork.Cached(rk, ui.PosterWidth); ok {
-				return PosterLoadedMsg{ListID: listID, Index: index, RatingKey: rk, View: cached}
+			if cached, ok := artwork.Cached(server.CacheNamespace()+"/"+rk, ui.PosterWidth); ok {
+				return PosterLoadedMsg{ServerID: server.CacheNamespace(), ListID: listID, Index: index, RatingKey: rk, View: cached}
 			}
 		}
 
@@ -72,7 +75,7 @@ func FetchPoster(listID int, index int, metadata components.Metadata) tea.Cmd {
 			return result
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(server.Context(context.Background()), 10*time.Second)
 		defer cancel()
 		data, err := plex.GetImage(ctx, path)
 		if err != nil {
@@ -88,12 +91,12 @@ func FetchPoster(listID int, index int, metadata components.Metadata) tea.Cmd {
 		if metadata.Type == "album" || metadata.Type == "track" {
 			height = min(height, max(1, (ui.PosterWidth*img.Bounds().Dy()/img.Bounds().Dx()+1)/2))
 		}
-		imgStr, err := artwork.Render(rk, img, ui.PosterWidth, height)
+		imgStr, err := artwork.Render(server.CacheNamespace()+"/"+rk, img, ui.PosterWidth, height)
 		if err != nil {
 			return result
 		}
 
-		return PosterLoadedMsg{ListID: listID, Index: index, RatingKey: rk, View: imgStr}
+		return PosterLoadedMsg{ServerID: server.CacheNamespace(), ListID: listID, Index: index, RatingKey: rk, View: imgStr}
 	}
 }
 

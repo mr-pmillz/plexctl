@@ -8,18 +8,21 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	tint "github.com/lrstanley/bubbletint"
+	"github.com/ygelfand/plexctl/internal/config"
 	"github.com/ygelfand/plexctl/internal/tui/artwork"
 	"github.com/ygelfand/plexctl/internal/ui"
 )
 
 type PosterGrid struct {
+	server   config.ServerTarget
 	Items    []*PosterItem
 	Cursor   int
 	Theme    tint.Tint
 	viewport viewport.Model
 }
 
-func NewPosterGrid(metadata []components.Metadata, theme tint.Tint) *PosterGrid {
+func NewPosterGrid(metadata []components.Metadata, theme tint.Tint, servers ...config.ServerTarget) *PosterGrid {
+	server := config.MediaServer(servers...)
 	items := make([]*PosterItem, len(metadata))
 	for i, m := range metadata {
 		items[i] = &PosterItem{Metadata: m, Loading: true}
@@ -29,7 +32,7 @@ func NewPosterGrid(metadata []components.Metadata, theme tint.Tint) *PosterGrid 
 			rk = *m.RatingKey
 		}
 		if rk != "" {
-			if cached, ok := artwork.Cached(rk, ui.PosterWidth); ok {
+			if cached, ok := artwork.Cached(server.CacheNamespace()+"/"+rk, ui.PosterWidth); ok {
 				items[i].Poster = cached
 				items[i].Loading = false
 			}
@@ -37,6 +40,7 @@ func NewPosterGrid(metadata []components.Metadata, theme tint.Tint) *PosterGrid 
 	}
 
 	return &PosterGrid{
+		server:   server,
 		Items:    items,
 		Theme:    theme,
 		viewport: viewport.New(0, 0),
@@ -89,7 +93,7 @@ func (m *PosterGrid) SetItems(metadata []components.Metadata) tea.Cmd {
 				rk = *meta.RatingKey
 			}
 			if rk != "" {
-				if cached, ok := artwork.Cached(rk, ui.PosterWidth); ok {
+				if cached, ok := artwork.Cached(m.server.CacheNamespace()+"/"+rk, ui.PosterWidth); ok {
 					newItems[i].Poster = cached
 					newItems[i].Loading = false
 				}
@@ -120,7 +124,7 @@ func (m *PosterGrid) fetchVisible() tea.Cmd {
 	for i := startIdx; i < endIdx; i++ {
 		if m.Items[i].Loading && !m.Items[i].Fetching {
 			m.Items[i].Fetching = true
-			cmds = append(cmds, FetchPoster(0, i, m.Items[i].Metadata))
+			cmds = append(cmds, FetchPoster(0, i, m.Items[i].Metadata, m.server))
 		}
 	}
 	return tea.Batch(cmds...)
@@ -139,6 +143,9 @@ func (m *PosterGrid) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, m.fetchVisible())
 
 	case PosterLoadedMsg:
+		if msg.ServerID != "" && msg.ServerID != m.server.CacheNamespace() {
+			return m, nil
+		}
 		if msg.Index >= 0 && msg.Index < len(m.Items) {
 			if msg.RatingKey != ui.PtrToString(m.Items[msg.Index].Metadata.RatingKey) {
 				return m, nil

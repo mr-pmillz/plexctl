@@ -70,7 +70,7 @@ func LoadData(ctx context.Context, updates chan<- any) {
 	sendUpdate(0.2, "Fetching libraries list...")
 	slog.Debug("Loader: Fetching sections from server", "server_id", serverID)
 	var sectionsBody operations.GetSectionsResponseBody
-	err = cache.AutoCache(cm, serverID, nil, LibraryCacheTTL, &sectionsBody, func() (*operations.GetSectionsResponseBody, error) {
+	err = cache.AutoCache(cm, cfg.MediaCacheNamespace(), nil, LibraryCacheTTL, &sectionsBody, func() (*operations.GetSectionsResponseBody, error) {
 		slog.Log(context.Background(), config.LevelTrace, "Loader: Sections Cache MISS, calling SDK")
 		res, err := client.SDK.Library.GetSections(ctx)
 		if err != nil {
@@ -110,7 +110,7 @@ func LoadData(ctx context.Context, updates chan<- any) {
 
 		var libInfo LibraryInfo
 		req := operations.ListContentRequest{SectionID: key}
-		err = cache.AutoCache(cm, serverID, req, LibraryCacheTTL, &libInfo, func() (*LibraryInfo, error) {
+		err = cache.AutoCache(cm, cfg.MediaCacheNamespace(), req, LibraryCacheTTL, &libInfo, func() (*LibraryInfo, error) {
 			slog.Log(context.Background(), config.LevelTrace, "Loader: Content Cache MISS", "library", title)
 			count := 0
 			contentRes, err := client.SDK.Content.ListContent(ctx, req)

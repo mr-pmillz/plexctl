@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	tint "github.com/lrstanley/bubbletint"
+	"github.com/ygelfand/plexctl/internal/config"
 	"github.com/ygelfand/plexctl/internal/plex"
 	"github.com/ygelfand/plexctl/internal/ui"
 )
@@ -22,9 +23,9 @@ type ShowDetailView struct {
 	listRect       ui.Rect
 }
 
-func NewShowDetailView(ratingKey string, theme tint.Tint) *ShowDetailView {
+func NewShowDetailView(ratingKey string, theme tint.Tint, servers ...config.ServerTarget) *ShowDetailView {
 	return &ShowDetailView{
-		DetailBase: NewDetailBase(ratingKey, theme),
+		DetailBase: NewDetailBase(ratingKey, theme, servers...),
 		seasonList: createBaseDetailList(),
 	}
 }
@@ -39,13 +40,16 @@ func (v *ShowDetailView) Refresh() tea.Cmd {
 	}
 	v.Loading = true
 	return func() tea.Msg {
-		ctx := context.Background()
+		ctx := v.Server.Context(context.Background())
 		meta, err := plex.GetMetadata(ctx, v.RatingKey, true)
 		if err != nil {
-			return err
+			return v.dataError(err)
 		}
-		children, _ := plex.GetChildren(ctx, v.RatingKey)
-		return detailDataMsg{metadata: meta, children: children}
+		children, err := plex.GetChildren(ctx, v.RatingKey)
+		if err != nil {
+			return v.dataError(err)
+		}
+		return detailDataMsg{serverID: v.Server.CacheNamespace(), ratingKey: v.RatingKey, metadata: meta, children: children}
 	}
 }
 
@@ -61,14 +65,17 @@ func (v *ShowDetailView) GetSelectedMetadata() *components.Metadata {
 }
 
 func (v *ShowDetailView) fetchData() tea.Msg {
-	ctx := context.Background()
+	ctx := v.Server.Context(context.Background())
 	meta, err := plex.GetMetadata(ctx, v.RatingKey, false)
 	if err != nil {
-		return err
+		return v.dataError(err)
 	}
 
-	children, _ := plex.GetChildren(ctx, v.RatingKey)
-	return detailDataMsg{metadata: meta, children: children}
+	children, err := plex.GetChildren(ctx, v.RatingKey)
+	if err != nil {
+		return v.dataError(err)
+	}
+	return detailDataMsg{serverID: v.Server.CacheNamespace(), ratingKey: v.RatingKey, metadata: meta, children: children}
 }
 
 func (v *ShowDetailView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -80,6 +87,10 @@ func (v *ShowDetailView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		newSeason, cmd := v.selectedSeason.Update(msg)
 		v.selectedSeason = newSeason.(*SeasonDetailView)
 		return v, cmd
+	}
+
+	if !v.Accepts(msg) {
+		return v, nil
 	}
 
 	var cmds []tea.Cmd
@@ -105,7 +116,7 @@ func (v *ShowDetailView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			if v.seasonList.SelectedItem() != nil {
 				child := v.seasonList.SelectedItem().(metadataItem).metadata
-				v.selectedSeason = NewSeasonDetailView(*child.RatingKey, v.Theme)
+				v.selectedSeason = NewSeasonDetailView(*child.RatingKey, v.Theme, v.Server)
 				return v, v.selectedSeason.Init()
 			}
 		case "esc", "backspace":
@@ -146,6 +157,9 @@ func (v *ShowDetailView) View() string {
 	}
 	if v.Loading {
 		return lipgloss.NewStyle().Padding(2).Render("Loading show details...")
+	}
+	if v.Err != nil {
+		return v.errorView()
 	}
 	if v.Metadata == nil {
 		return "No metadata available"

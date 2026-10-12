@@ -65,15 +65,20 @@ func (idx *SearchIndex) Snapshot() ([]IndexEntry, time.Time) {
 }
 
 var (
-	indexInstance *SearchIndex
-	indexOnce     sync.Once
+	indexInstance  *SearchIndex
+	indexMu        sync.Mutex
+	indexNamespace string
 )
 
 func GetIndex() *SearchIndex {
-	indexOnce.Do(func() {
+	indexMu.Lock()
+	defer indexMu.Unlock()
+	namespace := config.Get().MediaCacheNamespace()
+	if indexInstance == nil || indexNamespace != namespace {
 		indexInstance = &SearchIndex{}
+		indexNamespace = namespace
 		_ = indexInstance.Load()
-	})
+	}
 	return indexInstance
 }
 
@@ -84,8 +89,7 @@ func (idx *SearchIndex) Load() error {
 		return err
 	}
 
-	serverID, _, _ := cfg.GetActiveServer()
-	key := fmt.Sprintf("%s/search_index", serverID)
+	key := fmt.Sprintf("%s/search_index", cfg.MediaCacheNamespace())
 
 	var data SearchIndex
 	if err := cm.Get(key, &data); err == nil {
@@ -105,8 +109,7 @@ func (idx *SearchIndex) Save() error {
 		return err
 	}
 
-	serverID, _, _ := cfg.GetActiveServer()
-	key := fmt.Sprintf("%s/search_index", serverID)
+	key := fmt.Sprintf("%s/search_index", cfg.MediaCacheNamespace())
 
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()

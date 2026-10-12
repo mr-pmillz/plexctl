@@ -60,20 +60,33 @@ func NewClient() (*Client, error) {
 	return NewClientWithToken(config.Get().ServerToken())
 }
 
-// NewHomeUserClient specifically uses the V2 AuthToken (general user token)
+// NewAccountClient uses the active Plex account or Home profile for plex.tv.
+func NewAccountClient() (*Client, error) {
+	return NewClientWithToken(config.Get().AccountToken())
+}
+
+// NewHomeHomeUserClient specifically uses the general user token.
 func NewHomeHomeUserClient() (*Client, error) {
-	cfg := config.Get()
-	token := cfg.Token
-	if cfg.HomeUser.AuthToken != "" {
-		token = cfg.HomeUser.AuthToken
-	}
-	return NewClientWithToken(token)
+	return NewAccountClient()
 }
 
 func NewClientWithToken(token string) (*Client, error) {
 	cfg := config.Get()
-	// 2. Resolve Server (if configured)
 	_, serverCfg, hasServer := cfg.GetActiveServer()
+	serverURL := ""
+	if hasServer {
+		serverURL = serverCfg.URL
+	}
+	return newClient(token, serverURL)
+}
+
+func NewClientForContext(ctx context.Context) (*Client, error) {
+	server := config.ServerFromContext(ctx)
+	return newClient(server.Token, server.URL)
+}
+
+func newClient(token, serverURL string) (*Client, error) {
+	cfg := config.Get()
 
 	if token == "" {
 		return nil, fmt.Errorf("plex token not found. please login with 'plexctl login' or set PLEXCTL_TOKEN")
@@ -98,8 +111,8 @@ func NewClientWithToken(token string) (*Client, error) {
 		plexgo.WithVersion(config.Version),
 	}
 
-	if hasServer && serverCfg.URL != "" {
-		opts = append(opts, plexgo.WithServerURL(serverCfg.URL))
+	if serverURL != "" {
+		opts = append(opts, plexgo.WithServerURL(serverURL))
 	}
 
 	return &Client{SDK: plexgo.New(opts...)}, nil
