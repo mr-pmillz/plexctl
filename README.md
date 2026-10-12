@@ -180,6 +180,51 @@ All CLI commands support the `-o` or `--output` flag to return data in `table`, 
 
 ## Configuration
 
+### Plex token (`PLEXCTL_TOKEN`)
+
+Set `PLEXCTL_TOKEN` to authenticate with Plex using an environment variable. It
+takes precedence over the account token saved in your plexctl configuration.
+
+To find your token in the browser:
+
+1. Open [Plex Web](https://app.plex.tv/) and sign in to your Plex account.
+2. Pick any movie or show from your own server. For a show, open an episode if
+   needed.
+3. Open the **three-dot menu (⋯)** and choose **Get Info** near the bottom.
+4. Click **View XML** at the bottom of the information window.
+5. In the new browser tab, look near the end of the URL for `X-Plex-Token=`.
+   Copy only the value after `=`, stopping before the next `&` if present. Do not
+   include `X-Plex-Token=` or the rest of the URL.
+
+For example, if the URL ends with `?X-Plex-Token=YOUR_TOKEN`, copy `YOUR_TOKEN`.
+The XML link is available when signed in as the server owner; see
+[Plex's media information guide](https://support.plex.tv/articles/202462186-viewing-item-details/).
+
+On macOS or Linux with Bash or Zsh, replace the placeholder with your token:
+
+```bash
+export PLEXCTL_TOKEN='YOUR_TOKEN'
+plexctl server discover
+plexctl
+```
+
+The export applies to the current terminal session. To keep it for future
+sessions, add the same `export` line to `~/.zshrc` for Zsh or `~/.bashrc` for Bash,
+then open a new terminal.
+
+On Windows with PowerShell, set it for the current session with:
+
+```powershell
+$env:PLEXCTL_TOKEN = 'YOUR_TOKEN'
+plexctl server discover
+plexctl
+```
+
+Keep your token private. Plex describes tokens obtained this way as temporary;
+if authentication stops working, retrieve a fresh token using the same steps.
+See [Plex's token guide](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/)
+for more details.
+
 ## License
 
 MIT
