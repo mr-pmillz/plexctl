@@ -1,6 +1,7 @@
 package termgraphics
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"io"
@@ -18,8 +19,12 @@ type Writer struct {
 	Output io.Writer
 	// Direct observes graphics without wrapping them for tmux.
 	Direct bool
-	// ImageID assigns frames to this playback session for targeted cleanup.
+	// ImageID reserves this ID and the next for alternating video frames.
+	// Replacing an image in place deletes it before the upload finishes.
 	ImageID          int
+	displayedImage   int
+	uploadingImage   int
+	buffered         *bufio.Writer
 	pending          []byte
 	cursorX, cursorY int
 	mu               sync.RWMutex
@@ -39,7 +44,18 @@ func (w *Writer) Frame() Frame {
 	return w.frame
 }
 
-func (w *Writer) Write(p []byte) (int, error) {
+func (w *Writer) Write(p []byte) (n int, err error) {
+	if w.buffered == nil {
+		w.buffered = bufio.NewWriterSize(w.Output, 32<<10)
+	}
+	// A video frame contains hundreds of 4 KiB packets. Batch their writes,
+	// particularly through tmux, but flush every input chunk so paused frames
+	// and the final cleanup never wait for more output from mpv.
+	defer func() {
+		if flushErr := w.buffered.Flush(); err == nil && flushErr != nil {
+			n, err = 0, flushErr
+		}
+	}()
 	w.pending = append(w.pending, p...)
 	for len(w.pending) > 0 {
 		start := bytes.IndexByte(w.pending, '\x1b')
@@ -47,7 +63,7 @@ func (w *Writer) Write(p []byte) (int, error) {
 			start = len(w.pending)
 		}
 		if start > 0 {
-			if _, err := w.Output.Write(w.pending[:start]); err != nil {
+			if _, err := w.buffered.Write(w.pending[:start]); err != nil {
 				return 0, err
 			}
 			w.pending = w.pending[start:]
@@ -73,14 +89,14 @@ func (w *Writer) Write(p []byte) (int, error) {
 				x, _ := strconv.Atoi(col)
 				w.cursorX, w.cursorY = max(0, x-1), max(0, y-1)
 			}
-			if _, err := w.Output.Write(w.pending[:end+1]); err != nil {
+			if _, err := w.buffered.Write(w.pending[:end+1]); err != nil {
 				return 0, err
 			}
 			w.pending = w.pending[end+1:]
 			continue
 		}
 		if w.pending[1] != '_' && w.pending[1] != 'P' {
-			if _, err := w.Output.Write(w.pending[:2]); err != nil {
+			if _, err := w.buffered.Write(w.pending[:2]); err != nil {
 				return 0, err
 			}
 			w.pending = w.pending[2:]
@@ -112,25 +128,52 @@ func (w *Writer) Write(p []byte) (int, error) {
 			w.mu.Unlock()
 		}
 		if w.ImageID != 0 && strings.HasPrefix(sequence, "\x1b_G") {
-			if head, payload, ok := strings.Cut(sequence, ";"); ok {
-				switch {
-				case strings.Contains(head, "a=T"):
-					sequence = fmt.Sprintf("%s,i=%d;%s", head, w.ImageID, payload)
-				case strings.Contains(head, "a=d"):
-					sequence = DeleteImage(w.ImageID)
-				}
-			}
+			sequence = w.kittyFrame(sequence)
 		}
 		packet := sequence
 		if !w.Direct {
 			packet = ansi.TmuxPassthrough(sequence)
 		}
-		if _, err := io.WriteString(w.Output, packet); err != nil {
+		if _, err := w.buffered.WriteString(packet); err != nil {
 			return 0, err
 		}
 		w.pending = w.pending[end:]
 	}
 	return len(p), nil
+}
+
+func (w *Writer) kittyFrame(sequence string) string {
+	head, payload, ok := strings.Cut(sequence, ";")
+	if !ok {
+		return sequence
+	}
+	fields := "," + strings.TrimPrefix(head, "\x1b_G") + ","
+	switch {
+	case strings.Contains(head, "a=T"):
+		w.uploadingImage = w.ImageID
+		if w.displayedImage == w.ImageID {
+			w.uploadingImage++
+		}
+		sequence = fmt.Sprintf("%s,i=%d;%s", head, w.uploadingImage, payload)
+	case strings.Contains(head, "a=d"):
+		w.displayedImage, w.uploadingImage = 0, 0
+		return w.DeleteImages()
+	}
+	// Keep the previous frame visible until the last chunk of its replacement
+	// is delivered. Reusing a single ID makes moving video flicker or go black,
+	// even when mpv reports no dropped frames. Two IDs also bound image memory.
+	if w.uploadingImage != 0 && (!strings.Contains(fields, ",m=1,") || strings.Contains(fields, ",t=s,")) {
+		if w.displayedImage != 0 {
+			sequence += DeleteImage(w.displayedImage)
+		}
+		w.displayedImage, w.uploadingImage = w.uploadingImage, 0
+	}
+	return sequence
+}
+
+// DeleteImages removes only the two images owned by this playback session.
+func (w *Writer) DeleteImages() string {
+	return DeleteImage(w.ImageID) + DeleteImage(w.ImageID+1)
 }
 
 func DeleteImage(id int) string {

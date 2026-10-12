@@ -31,6 +31,7 @@ plexctl [flags]
 * [plexctl hub](plexctl_hub.md)	 - Manage hubs
 * [plexctl library](plexctl_library.md)	 - Manage libraries
 * [plexctl login](plexctl_login.md)	 - Login to Plex using a PIN flow
+* [plexctl mpv](plexctl_mpv.md)	 - Check the installed mpv and latest stable release
 * [plexctl play](plexctl_play.md)	 - Play a media item
 * [plexctl playlist](plexctl_playlist.md)	 - Manage playlists
 * [plexctl search](plexctl_search.md)	 - Manage and use the library search index

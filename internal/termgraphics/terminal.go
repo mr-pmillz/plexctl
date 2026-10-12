@@ -3,12 +3,15 @@ package termgraphics
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,8 +25,11 @@ import (
 type Capabilities struct {
 	Responded bool
 	Kitty     bool
-	Sixel     bool
-	Name      string
+	// KittySharedMemory is confirmed by a query using a local memory object;
+	// environment variables cannot establish that the terminal is local.
+	KittySharedMemory bool
+	Sixel             bool
+	Name              string
 }
 
 // NativePosters requires Unicode placeholders, which basic Kitty graphics
@@ -170,7 +176,11 @@ var attributes = regexp.MustCompile(`\x1b\[\?([0-9;]+)c`)
 var terminalName = regexp.MustCompile(`\x1bP>\|([^\x1b]+)\x1b\\`)
 
 func parseCapabilities(reply string) Capabilities {
-	c := Capabilities{Kitty: strings.Contains(reply, "_Gi=18901;OK")}
+	c := Capabilities{
+		Kitty:             strings.Contains(reply, "_Gi=18901;OK"),
+		KittySharedMemory: strings.Contains(reply, "_Gi=18902;OK"),
+	}
+	c.Kitty = c.Kitty || c.KittySharedMemory
 	if match := attributes.FindStringSubmatch(reply); match != nil {
 		c.Responded = true
 		for _, feature := range strings.Split(match[1], ";")[1:] {
@@ -183,6 +193,30 @@ func parseCapabilities(reply string) Capabilities {
 	}
 	c.Responded = c.Responded || c.Kitty
 	return c
+}
+
+// sharedMemoryQuery verifies that the terminal can actually read a random
+// local memory object. SSH sessions fall back to escape-code transport.
+// Linux exposes POSIX shared memory through /dev/shm; other platforms use the
+// portable transport until they have a corresponding native probe.
+func sharedMemoryQuery() (string, func()) {
+	noop := func() {}
+	if runtime.GOOS != "linux" {
+		return "", noop
+	}
+	f, err := os.CreateTemp("/dev/shm", "plexctl-video-probe-")
+	if err != nil {
+		return "", noop
+	}
+	cleanup := func() { _ = os.Remove(f.Name()) }
+	_, writeErr := f.Write([]byte{0, 0, 0})
+	closeErr := f.Close()
+	if writeErr != nil || closeErr != nil {
+		cleanup()
+		return "", noop
+	}
+	name := base64.StdEncoding.EncodeToString([]byte("/" + filepath.Base(f.Name())))
+	return "\x1b_Ga=q,t=s,i=18902,s=1,v=1,f=24;" + name + "\x1b\\", cleanup
 }
 
 // Probe must run while the caller owns terminal input (before Bubble Tea starts
@@ -222,7 +256,9 @@ func Probe(input *os.File, output io.Writer) Capabilities {
 			}
 		}
 	}()
-	_, _ = io.WriteString(output, Wrap("\x1b_Ga=q,U=1,i=18901,s=1,v=1,f=24;AAAA\x1b\\\x1b[c\x1b[>q"))
+	shm, cleanup := sharedMemoryQuery()
+	defer cleanup()
+	_, _ = io.WriteString(output, Wrap("\x1b_Ga=q,U=1,i=18901,s=1,v=1,f=24;AAAA\x1b\\"+shm+"\x1b[c\x1b[>q"))
 	timer := time.NewTimer(350 * time.Millisecond)
 	select {
 	case <-done:

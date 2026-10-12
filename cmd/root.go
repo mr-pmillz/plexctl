@@ -38,7 +38,7 @@ var rootCmd = &cobra.Command{
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if config.Get().DefaultToTui {
-			return runTUI()
+			return runTUI(cmd)
 		}
 		return cmd.Help()
 	},

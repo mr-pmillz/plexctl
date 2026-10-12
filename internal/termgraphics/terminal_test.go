@@ -48,6 +48,8 @@ func TestCapabilities(t *testing.T) {
 		{"unknown", "", Capabilities{}},
 		{"vte", "\x1b[?61;1;21;22c\x1bP>|VTE(7600)\x1b\\", Capabilities{Responded: true, Name: "VTE(7600)"}},
 		{"kitty", "\x1b_Gi=18901;OK\x1b\\\x1b[?62;4;22c", Capabilities{Responded: true, Kitty: true, Sixel: true}},
+		{"local kitty", "\x1b_Gi=18901;OK\x1b\\\x1b_Gi=18902;OK\x1b\\", Capabilities{Responded: true, Kitty: true, KittySharedMemory: true}},
+		{"remote kitty", "\x1b_Gi=18901;OK\x1b\\\x1b_Gi=18902;EBADF:Failed to read image\x1b\\", Capabilities{Responded: true, Kitty: true}},
 		{"sixel", "\x1b[?64;1;4;22c", Capabilities{Responded: true, Sixel: true}},
 		{"not four", "\x1b[?64;14;24c", Capabilities{Responded: true}},
 	} {
@@ -85,7 +87,7 @@ func TestKittyPlaybackImageOwnership(t *testing.T) {
 	if _, err := w.Write([]byte("\x1b_Ga=d;\x1b\\\x1b_Ga=T,f=24,s=1,v=1;AAAA\x1b\\")); err != nil {
 		t.Fatal(err)
 	}
-	want := ansi.TmuxPassthrough(DeleteImage(1073741824)) + ansi.TmuxPassthrough("\x1b_Ga=T,f=24,s=1,v=1,i=1073741824;AAAA\x1b\\")
+	want := ansi.TmuxPassthrough(DeleteImage(1073741824)+DeleteImage(1073741825)) + ansi.TmuxPassthrough("\x1b_Ga=T,f=24,s=1,v=1,i=1073741824;AAAA\x1b\\")
 	if output.String() != want {
 		t.Fatal("video could overwrite or delete other applications' images")
 	}

@@ -27,14 +27,15 @@ import (
 // and renderer for the entire Run call, then restores the library view.
 // Its status is private: IPC events and progress reporting run on the same loop.
 type terminalPlayback struct {
-	mpv        string
-	output     config.VideoOutput
-	preference config.VideoOutput
-	status     PlayerStatus
-	subtitles  []ExternalSubtitle
-	stdin      io.Reader
-	stdout     io.Writer
-	report     func(context.Context, PlayerStatus)
+	mpv          string
+	output       config.VideoOutput
+	preference   config.VideoOutput
+	status       PlayerStatus
+	subtitles    []ExternalSubtitle
+	stdin        io.Reader
+	stdout       io.Writer
+	report       func(context.Context, PlayerStatus)
+	sharedMemory bool
 }
 
 var _ tea.ExecCommand = (*terminalPlayback)(nil)
@@ -87,6 +88,9 @@ func (p *terminalPlayback) SetStderr(io.Writer) {}
 
 func (p *terminalPlayback) args(socket string) []string {
 	args := []string{
+		// Terminal renderers scale every frame in software. mpv's default
+		// high-quality scaler is needlessly expensive for terminal video.
+		"--profile=sw-fast",
 		"--idle=once", "--keep-open=no", "--no-resume-playback",
 		"--pause=no", "--loop-file=no", "--loop-playlist=no",
 		"--force-window=no", "--terminal=yes", "--input-terminal=yes",
@@ -96,8 +100,14 @@ func (p *terminalPlayback) args(socket string) []string {
 		fmt.Sprintf("--start=%.3f", p.status.Time),
 	}
 	if p.output == config.VideoKitty {
-		// Escape-code transport also works over SSH; shared memory does not.
-		args = append(args, "--vo-kitty-use-shm=no")
+		// Only use shared memory after the terminal proves it can read it.
+		// This avoids transferring megabytes per frame through local tmux,
+		// while retaining the portable transport over SSH.
+		transport := "no"
+		if p.sharedMemory {
+			transport = "yes"
+		}
+		args = append(args, "--vo-kitty-use-shm="+transport)
 		// Our control bar uses mpv's OSD compositor and IPC, independently
 		// of the Lua OSC and its window-system mouse events.
 		args = append(args, "--osc=no")
@@ -113,6 +123,7 @@ func (p *terminalPlayback) Run() error {
 	}
 	if input, ok := p.stdin.(*os.File); ok {
 		caps := termgraphics.Probe(input, p.stdout)
+		p.sharedMemory = caps.KittySharedMemory
 		if p.preference != config.VideoWindow {
 			var err error
 			p.mpv, p.output, err = terminalOutput(context.Background(), p.preference, os.Getenv)
@@ -169,9 +180,9 @@ func (p *terminalPlayback) Run() error {
 	if p.output == config.VideoKitty {
 		controls = &terminalControls{focus: -1, hover: -1, speed: 1, subtitles: true}
 		p.status.Volume = 100
-		graphics = &termgraphics.Writer{Output: p.stdout, Direct: !termgraphics.InTmux(), ImageID: (1 << 30) + rand.IntN(1<<20)}
+		graphics = &termgraphics.Writer{Output: p.stdout, Direct: !termgraphics.InTmux(), ImageID: (1 << 30) + 2*rand.IntN(1<<19)}
 		cmd.Stdout = graphics
-		defer func() { _, _ = io.WriteString(p.stdout, termgraphics.Wrap(termgraphics.DeleteImage(graphics.ImageID))) }()
+		defer func() { _, _ = io.WriteString(p.stdout, termgraphics.Wrap(graphics.DeleteImages())) }()
 	}
 	// Our wrapper handles actual tmux panes. Also remove stale tmux variables
 	// from direct Kitty windows so mpv cannot wrap their graphics by mistake.

@@ -1,11 +1,29 @@
 package player
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/ygelfand/plexctl/internal/config"
 	"github.com/ygelfand/plexctl/internal/termgraphics"
 )
+
+func TestKittySharedMemoryRequiresSuccessfulProbe(t *testing.T) {
+	for _, local := range []bool{false, true} {
+		p := terminalPlayback{output: config.VideoKitty, sharedMemory: local}
+		want, unwanted := "--vo-kitty-use-shm=no", "--vo-kitty-use-shm=yes"
+		if local {
+			want, unwanted = unwanted, want
+		}
+		args := p.args("ipc")
+		if !slices.Contains(args, want) || slices.Contains(args, unwanted) {
+			t.Fatalf("sharedMemory=%v: unsafe transport arguments %v", local, args)
+		}
+		if !slices.Contains(args, "--profile=sw-fast") {
+			t.Fatal("missing software-rendering performance profile")
+		}
+	}
+}
 
 func TestSelectTerminalOutput(t *testing.T) {
 	t.Parallel()

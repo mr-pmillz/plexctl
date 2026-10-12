@@ -27,6 +27,9 @@ var playCmd = &cobra.Command{
 	Args:    cobra.ExactArgs(1),
 	GroupID: "media",
 	RunE: commands.RunWithServer(func(ctx context.Context, client *plex.Client, cmd *cobra.Command, args []string, opts *commands.PlexCtlOptions) error {
+		if err := checkMPV(cmd, true, false, true, true); err != nil {
+			return err
+		}
 		output := config.VideoWindow
 		if tctMode {
 			output = config.VideoTCT

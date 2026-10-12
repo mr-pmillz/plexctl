@@ -8,7 +8,21 @@ A robust Plex CLI and TUI written in Go.
 
 ## Prerequisites
 
-`plexctl` uses **mpv** for media playback. You must have it installed and available in your PATH.
+`plexctl` uses **mpv** for media playback. Before opening the TUI or playing media,
+it checks the copy on your PATH against the latest stable mpv release. When mpv
+is missing or outdated, it offers installation or an update and shows the exact
+package-manager commands. Nothing is installed unless you answer **yes** in an
+interactive terminal. You can decline and keep browsing or use an existing player.
+
+Run `plexctl mpv` to check explicitly, or `plexctl mpv install` to approve an
+installation/update. These commands do not require a Plex login. Release checks
+are cached for a day; offline checks do not block an installed player. Development
+builds newer than the stable release are not downgraded.
+
+Automatic installation supports Homebrew and common Linux package managers.
+Distribution repositories can lag upstream; plexctl rechecks the resolved binary
+after installation and reports if it is still outdated. Other systems receive
+manual installation instructions from [mpv.io](https://mpv.io/installation/).
 
 ### Installation Instructions
 
@@ -93,6 +107,8 @@ Graphics playback requires a compatible terminal and an mpv build that lists the
 chosen renderer in `mpv --vo=help`. plexctl probes the attached terminal, including
 through tmux, and uses text output when graphics are unavailable. In tmux 3.3+,
 playback temporarily zooms its pane and restores the layout on exit.
+On Linux, a terminal that confirms local shared-memory access uses that faster
+transport; SSH and other terminals keep using portable graphics packets.
 
 Mouse support is enabled automatically: click posters, navigation, and dialog
 options; scroll with the wheel; right click to go back. During terminal video,

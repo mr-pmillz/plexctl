@@ -50,7 +50,11 @@ go install github.com/ygelfand/plexctl@latest
 
 ### Prerequisites
 
-You must have **mpv** installed for media playback:
+**mpv** is required for media playback. Before starting the TUI or a player,
+plexctl checks for missing or outdated mpv and offers installation with your
+approval. You can also run `plexctl mpv` or `plexctl mpv install` explicitly.
+Package repositories may lag upstream; plexctl verifies the version afterward.
+For manual installation:
 
 - **macOS**: `brew install mpv`
 - **Linux**: `sudo apt install mpv` or `sudo pacman -S mpv`
