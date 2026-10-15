@@ -104,22 +104,26 @@ type HomeUser struct {
 // Config holds the global configuration for plexctl
 type Config struct {
 	// Global settings
-	Token             string            `mapstructure:"token"`
-	HomeUser          HomeUser          `mapstructure:"home_user"`
-	OutputFormat      string            `mapstructure:"output"`
-	Verbosity         int               `mapstructure:"verbose"`
-	Theme             string            `mapstructure:"theme"`
-	IconType          IconType          `mapstructure:"icon_type"`           // ascii, emoji, nerdfonts
-	LibraryNameFormat LibraryNameFormat `mapstructure:"library_name_format"` // icon_only, icon_name, name_icon, name
-	DefaultViewMode   ViewMode          `mapstructure:"default_view_mode"`   // list, poster
-	CacheDir          string            `mapstructure:"cache_dir"`
-	NoCache           bool              `mapstructure:"no_cache"`
-	DefaultToTui      bool              `mapstructure:"default_to_tui"`
-	AutoHomeLogin     bool              `mapstructure:"auto_home_login"`
-	CloseVideoOnQuit  bool              `mapstructure:"close_video_on_quit"`
-	TerminalVideo     VideoOutput       `mapstructure:"terminal_video"`
-	MusicPlayer       string            `mapstructure:"music_player"`
-	MusicVisualizer   string            `mapstructure:"music_visualizer"`
+	Token                 string            `mapstructure:"token"`
+	HomeUser              HomeUser          `mapstructure:"home_user"`
+	OutputFormat          string            `mapstructure:"output"`
+	Verbosity             int               `mapstructure:"verbose"`
+	Theme                 string            `mapstructure:"theme"`
+	IconType              IconType          `mapstructure:"icon_type"`           // ascii, emoji, nerdfonts
+	LibraryNameFormat     LibraryNameFormat `mapstructure:"library_name_format"` // icon_only, icon_name, name_icon, name
+	DefaultViewMode       ViewMode          `mapstructure:"default_view_mode"`   // list, poster
+	CacheDir              string            `mapstructure:"cache_dir"`
+	NoCache               bool              `mapstructure:"no_cache"`
+	DefaultToTui          bool              `mapstructure:"default_to_tui"`
+	AutoHomeLogin         bool              `mapstructure:"auto_home_login"`
+	CloseVideoOnQuit      bool              `mapstructure:"close_video_on_quit"`
+	TerminalVideo         VideoOutput       `mapstructure:"terminal_video"`
+	TerminalVideoMode     string            `mapstructure:"terminal_video_mode"`
+	SixelVideoWidth       int               `mapstructure:"sixel_video_width"`
+	PosterRenderer        string            `mapstructure:"poster_renderer"`
+	WindowMusicVisualizer string            `mapstructure:"window_music_visualizer"`
+	MusicPlayer           string            `mapstructure:"music_player"`
+	MusicVisualizer       string            `mapstructure:"music_visualizer"`
 
 	// Server management
 	DefaultServer string            `mapstructure:"default_server"` // Stores the ClientIdentifier
@@ -149,16 +153,20 @@ func Get() *Config {
 		lvl := &slog.LevelVar{}
 		lvl.Set(slog.LevelInfo)
 		instance = &Config{
-			Logger:          slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: lvl})),
-			LogLevel:        lvl,
-			Servers:         make(map[string]Server),
-			CacheDir:        filepath.Join(home, ".plexctl", "cache"),
-			DefaultToTui:    true,
-			AutoHomeLogin:   true,
-			DefaultViewMode: ViewModePoster,
-			TerminalVideo:   VideoAuto,
-			MusicPlayer:     "terminal",
-			MusicVisualizer: "waveform",
+			Logger:                slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: lvl})),
+			LogLevel:              lvl,
+			Servers:               make(map[string]Server),
+			CacheDir:              filepath.Join(home, ".plexctl", "cache"),
+			DefaultToTui:          true,
+			AutoHomeLogin:         true,
+			DefaultViewMode:       ViewModePoster,
+			TerminalVideo:         VideoAuto,
+			TerminalVideoMode:     "suspend",
+			SixelVideoWidth:       640,
+			PosterRenderer:        "auto",
+			WindowMusicVisualizer: "cqt",
+			MusicPlayer:           "terminal",
+			MusicVisualizer:       "waveform",
 		}
 	})
 	return instance
@@ -225,6 +233,10 @@ func (c *Config) Save() error {
 	viper.Set("auto_home_login", c.AutoHomeLogin)
 	viper.Set("close_video_on_quit", c.CloseVideoOnQuit)
 	viper.Set("terminal_video", c.TerminalVideo)
+	viper.Set("terminal_video_mode", c.TerminalVideoMode)
+	viper.Set("sixel_video_width", c.SixelVideoWidth)
+	viper.Set("poster_renderer", c.PosterRenderer)
+	viper.Set("window_music_visualizer", c.WindowMusicVisualizer)
 	viper.Set("music_player", c.MusicPlayer)
 	viper.Set("music_visualizer", c.MusicVisualizer)
 	viper.Set("cache_dir", c.CacheDir)

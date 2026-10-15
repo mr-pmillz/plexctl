@@ -47,6 +47,9 @@ func (c *Controller) refreshPlayer() tea.Cmd {
 	c.visualizer.Step(c.playerStatus.Spectrum, c.playerStatus.Paused(), elapsed)
 	c.visualizer.StepWaveform(c.playerStatus.Waveform, c.playerStatus.Paused(), elapsed)
 	if previous.Active() != c.playerStatus.Active() || previous.AudioOnly != c.playerStatus.AudioOnly {
+		if previous.Overlay || c.playerStatus.Overlay {
+			return tea.Batch(resizePlayer(), tea.ClearScreen)
+		}
 		return resizePlayer()
 	}
 	return nil

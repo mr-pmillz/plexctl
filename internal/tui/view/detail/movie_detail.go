@@ -80,7 +80,7 @@ func (v *MovieDetailView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (v *MovieDetailView) playTrailer() tea.Cmd {
-	return player.FetchAndPlayTrailer(v.Metadata, config.VideoWindow, v.Server)
+	return player.FetchAndPlayTrailer(context.Background(), v.Metadata, config.VideoWindow, v.Server)
 }
 
 func (v *MovieDetailView) hasTrailer() bool {

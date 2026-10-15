@@ -49,11 +49,13 @@ func TestTerminalPlayback(t *testing.T) {
 		noReport bool
 		wantTime float64
 		wantErr  bool
+		auto     bool
 	}{
 		{name: "eof", wantTime: 120},
 		{name: "quit", wantTime: 31.5},
 		{name: "trailer", noReport: true},
 		{name: "startup-failure", wantErr: true},
+		{name: "auto-startup-failure", auto: true, wantTime: 120},
 		{name: "load-failure", wantErr: true},
 		{name: "stream-failure", wantErr: true},
 		{name: "controls", wantTime: 120},
@@ -74,12 +76,18 @@ func TestTerminalPlayback(t *testing.T) {
 					reports = append(reports, status)
 				},
 			}
+			if tt.auto {
+				p.preference = config.VideoAuto
+			}
 			err := p.Run()
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("Run error = %v, want error %v", err, tt.wantErr)
 			}
 			if err != nil && strings.Contains(err.Error(), "secret") {
 				t.Fatal("playback error exposed an authentication token")
+			}
+			if tt.auto && (p.fallback != config.VideoKitty || p.output != config.VideoTCT) {
+				t.Fatalf("automatic graphics startup did not fall back to text: %+v", p)
 			}
 			if tt.wantErr {
 				return
@@ -136,7 +144,8 @@ func TestTerminalPlaybackRestoresTUI(t *testing.T) {
 	for _, scenario := range []string{"tui", "startup-failure"} {
 		t.Run(scenario, func(t *testing.T) {
 			fakeTerminalMPV(t, scenario)
-			pm := &PlayerManager{updates: make(chan tea.Msg, 1)}
+			pm := newPlayerManager("")
+			t.Cleanup(pm.Close)
 			m := &terminalTestModel{command: pm.Play("https://plex.invalid/video", "Film", "", true, config.VideoKitty, 0, nil)}
 			var output bytes.Buffer
 			program := tea.NewProgram(m, tea.WithInput(strings.NewReader("")), tea.WithOutput(&output), tea.WithoutSignalHandler())
@@ -173,10 +182,10 @@ func TestTerminalMPVHelper(t *testing.T) {
 		fmt.Println("Available video outputs:\n  kitty graphics\n  sixel graphics\n  tct text")
 		os.Exit(0)
 	}
-	if scenario == "startup-failure" {
+	if scenario == "startup-failure" || scenario == "auto-startup-failure" && slices.Contains(os.Args, "--vo=kitty") {
 		os.Exit(3)
 	}
-	if !slices.Contains(os.Args, "--idle=once") || !slices.Contains(os.Args, "--vo=kitty") || !slices.Contains(os.Args, "--vo-kitty-use-shm=no") {
+	if !slices.Contains(os.Args, "--idle=once") || (scenario != "auto-startup-failure" && (!slices.Contains(os.Args, "--vo=kitty") || !slices.Contains(os.Args, "--vo-kitty-use-shm=no"))) {
 		os.Exit(10)
 	}
 	if scenario != "tui" && !slices.Contains(os.Args, "--start=12.345") {
@@ -208,35 +217,53 @@ func TestTerminalMPVHelper(t *testing.T) {
 	})
 	decoder := json.NewDecoder(conn)
 	encoder := json.NewEncoder(conn)
-	for {
+	loaded, playlist, unpaused, subtitle := false, false, false, scenario == "tui"
+	for !loaded || !playlist || !unpaused || !subtitle {
 		var request struct {
-			Command   []any `json:"command"`
-			RequestID int   `json:"request_id"`
+			Command   json.RawMessage `json:"command"`
+			RequestID int             `json:"request_id"`
 		}
 		if decoder.Decode(&request) != nil {
 			os.Exit(14)
 		}
-		if request.Command[0] != "loadfile" {
+		var named map[string]any
+		if json.Unmarshal(request.Command, &named) == nil && named["name"] == "loadfile" {
+			if scenario == "load-failure" {
+				_ = encoder.Encode(map[string]any{"request_id": request.RequestID, "error": "invalid parameter"})
+				_, _ = io.Copy(io.Discard, conn)
+				return
+			}
+			_ = encoder.Encode(map[string]any{"request_id": request.RequestID, "error": "success"})
+			if scenario == "stream-failure" {
+				_ = encoder.Encode(map[string]any{"event": "end-file", "reason": "error"})
+				return
+			}
+			_ = encoder.Encode(map[string]any{"event": "file-loaded"})
+			loaded = true
 			continue
 		}
-		if scenario == "load-failure" {
-			_ = encoder.Encode(map[string]any{"request_id": request.RequestID, "error": "invalid parameter"})
-			_, _ = io.Copy(io.Discard, conn)
-			return
+		var command []any
+		if json.Unmarshal(request.Command, &command) != nil || len(command) == 0 {
+			os.Exit(14)
 		}
-		_ = encoder.Encode(map[string]any{"request_id": request.RequestID, "error": "success"})
-		if scenario == "stream-failure" {
-			_ = encoder.Encode(map[string]any{"event": "end-file", "reason": "error"})
-			return
-		}
-		_ = encoder.Encode(map[string]any{"event": "file-loaded"})
-		if scenario != "tui" {
-			if decoder.Decode(&request) != nil || len(request.Command) != 5 || request.Command[0] != "sub-add" || request.Command[3] != "English CC" || request.Command[4] != "eng" {
+		switch command[0] {
+		case "get_property":
+			if len(command) == 2 && command[1] == "playlist" {
+				_ = encoder.Encode(map[string]any{"request_id": request.RequestID, "error": "success", "data": []any{map[string]any{"id": 1}}})
+				playlist = true
+			}
+		case "set_property":
+			if len(command) == 3 && command[1] == "pause" && command[2] == false {
+				unpaused = true
+			}
+		case "sub-add":
+			if len(command) != 5 || command[3] != "English CC" || command[4] != "eng" {
 				os.Exit(15)
 			}
+			subtitle = true
 		}
-		break
 	}
+
 	for _, property := range []struct {
 		id   int
 		data any

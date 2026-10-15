@@ -2,6 +2,7 @@ package settings
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
@@ -78,6 +79,10 @@ func (m *SettingsOverlayModel) updateItems() {
 		settingItem{id: "auto_home_login", title: "Auto Home Login", description: "Login automatically if token exists", current: fmt.Sprintf("%v", cfg.AutoHomeLogin)},
 		settingItem{id: "close_video_on_quit", title: "Close Video On Quit", description: "Close mpv when exiting app", current: fmt.Sprintf("%v", cfg.CloseVideoOnQuit)},
 		settingItem{id: "terminal_video", title: "Terminal Video", description: "Video renderer for Ctrl+P", current: string(cfg.TerminalVideo)},
+		settingItem{id: "poster_renderer", title: "Poster Renderer", description: "Native image protocol or half-cell text", current: cfg.PosterRenderer},
+		settingItem{id: "terminal_video_mode", title: "Terminal Video Mode", description: "Suspend the TUI or overlay video while browsing", current: cfg.TerminalVideoMode},
+		settingItem{id: "sixel_video_width", title: "Sixel Video Width", description: "Pixel cap for smoother playback; 0 uses the terminal size", current: strconv.Itoa(cfg.SixelVideoWidth)},
+		settingItem{id: "window_music_visualizer", title: "Music Video Visualizer", description: "Music in an mpv window or terminal video", current: cfg.WindowMusicVisualizer},
 		settingItem{id: "music_player", title: "Music Player", description: "Where music plays", current: cfg.MusicPlayer},
 		settingItem{id: "music_visualizer", title: "Music Visualizer", description: "Audio-reactive terminal display (z to cycle)", current: cfg.MusicVisualizer},
 	}
@@ -233,6 +238,29 @@ func (m *SettingsOverlayModel) prepareSelection(id string) {
 			selectionItem{id: string(config.VideoSixel), value: "Sixel graphics"},
 			selectionItem{id: string(config.VideoTCT), value: "TCT (text fallback)"},
 		}
+	case "poster_renderer":
+		m.selectionList.Title = "Choose Poster Renderer"
+		items = []list.Item{selectionItem{id: "auto", value: "Auto (Kitty, Sixel, half-cell)"},
+			selectionItem{id: "kitty", value: "Kitty / Ghostty placeholders"},
+			selectionItem{id: "sixel", value: "Sixel graphics"}, selectionItem{id: "halfcell", value: "Half-cell text"}}
+	case "terminal_video_mode":
+		m.selectionList.Title = "Choose Terminal Video Mode"
+		items = []list.Item{selectionItem{id: "suspend", value: "Suspend TUI · full terminal and video controls"},
+			selectionItem{id: "overlay", value: "Overlay · keep the TUI and player controls active"}}
+	case "sixel_video_width":
+		m.selectionList.Title = "Choose Sixel Pixel Width"
+		for _, width := range []string{"320", "480", "640", "960", "1280", "0"} {
+			label := width + " pixels"
+			if width == "0" {
+				label = "Automatic (full terminal)"
+			}
+			items = append(items, selectionItem{id: width, value: label})
+		}
+	case "window_music_visualizer":
+		m.selectionList.Title = "Choose Music Video Visualizer"
+		for _, style := range []string{"cqt", "spectrum", "waves", "scope", "off"} {
+			items = append(items, selectionItem{id: style, value: style})
+		}
 	case "music_player":
 		m.selectionList.Title = "Choose Music Player"
 		items = []list.Item{
@@ -264,6 +292,14 @@ func (m *SettingsOverlayModel) prepareSelection(id string) {
 		current = string(cfg.DefaultViewMode)
 	case "terminal_video":
 		current = string(cfg.TerminalVideo)
+	case "poster_renderer":
+		current = cfg.PosterRenderer
+	case "terminal_video_mode":
+		current = cfg.TerminalVideoMode
+	case "sixel_video_width":
+		current = strconv.Itoa(cfg.SixelVideoWidth)
+	case "window_music_visualizer":
+		current = cfg.WindowMusicVisualizer
 	case "music_player":
 		current = cfg.MusicPlayer
 	case "music_visualizer":
@@ -291,6 +327,14 @@ func (m *SettingsOverlayModel) applySetting(setting, value string) {
 		cfg.DefaultViewMode = config.ViewMode(value)
 	case "terminal_video":
 		cfg.TerminalVideo = config.VideoOutput(value)
+	case "poster_renderer":
+		cfg.PosterRenderer = value
+	case "terminal_video_mode":
+		cfg.TerminalVideoMode = value
+	case "sixel_video_width":
+		cfg.SixelVideoWidth, _ = strconv.Atoi(value)
+	case "window_music_visualizer":
+		cfg.WindowMusicVisualizer = value
 	case "music_player":
 		cfg.MusicPlayer = value
 	case "music_visualizer":

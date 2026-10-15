@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/LukeHagar/plexgo/models/components"
 	tea "github.com/charmbracelet/bubbletea"
@@ -15,94 +14,138 @@ import (
 	"github.com/ygelfand/plexctl/internal/ui"
 )
 
-func PlayMedia(metadata *components.Metadata, noReport bool, output config.VideoOutput, startOffset int64, servers ...config.ServerTarget) tea.Cmd {
-	server := config.MediaServer(servers...)
-	part := plex.PlayablePart(metadata)
-	if part == nil {
-		return func() tea.Msg { return fmt.Errorf("no playable media found") }
-	}
+// PlayItem carries the Plex identity of one playlist entry. The queue is kept
+// in playlist order rather than keyed by URL, since a playlist can repeat files.
+type PlayItem struct {
+	URL       string
+	Title     string
+	RatingKey string
+	Duration  float64
+}
 
+type PlayRequest struct {
+	Items     []PlayItem
+	Server    config.ServerTarget
+	NoReport  bool
+	Music     bool
+	Subtitles []ExternalSubtitle
+}
+
+// BuildPlayRequest resolves containers before starting mpv, so an unsuccessful
+// library request cannot interrupt the currently playing item.
+func BuildPlayRequest(ctx context.Context, metadata *components.Metadata, noReport bool) (*PlayRequest, error) {
+	server := config.ServerFromContext(ctx)
 	if server.URL == "" {
-		return func() tea.Msg { return fmt.Errorf("no active server") }
+		return nil, fmt.Errorf("no active server")
 	}
-
-	separator := "?"
-	if strings.Contains(part.Key, "?") {
-		separator = "&"
+	if metadata == nil {
+		return nil, fmt.Errorf("no playable media found")
 	}
-	token := url.QueryEscape(server.Token)
-	playURL := fmt.Sprintf("%s%s%sX-Plex-Token=%s", server.URL, part.Key, separator, token)
-
-	var subtitles []ExternalSubtitle
-	for _, stream := range part.Stream {
-		if stream.StreamType == components.StreamTypeSubtitle && stream.Key != "" {
-			sep := "?"
-			if strings.Contains(stream.Key, "?") {
-				sep = "&"
+	tracks := []components.Metadata{*metadata}
+	if metadata.Type == "artist" || metadata.Type == "album" {
+		var err error
+		tracks, err = plex.CollectTracks(ctx, metadata)
+		if err != nil {
+			return nil, err
+		}
+	}
+	req := &PlayRequest{Server: server, NoReport: noReport, Music: config.IsMusic(metadata.Type)}
+	for _, track := range tracks {
+		part := plex.PlayablePart(&track)
+		if part == nil {
+			return nil, fmt.Errorf("no playable media found")
+		}
+		item := PlayItem{URL: partURL(server, part.Key), Title: track.Title}
+		if track.RatingKey != nil {
+			item.RatingKey = *track.RatingKey
+		}
+		if track.Duration != nil {
+			item.Duration = float64(*track.Duration) / 1000
+		}
+		if track.Type == "track" && track.GrandparentTitle != nil {
+			item.Title = *track.GrandparentTitle + " — " + item.Title
+		}
+		if noReport {
+			item.Title = "Trailer: " + item.Title
+		}
+		req.Items = append(req.Items, item)
+		if len(tracks) != 1 {
+			continue
+		}
+		for _, stream := range part.Stream {
+			if stream.StreamType != components.StreamTypeSubtitle || stream.Key == "" {
+				continue
 			}
-			subURL := fmt.Sprintf("%s%s%sX-Plex-Token=%s", server.URL, stream.Key, sep, token)
-			lang := ""
+			language := ""
 			if stream.LanguageCode != nil {
-				lang = *stream.LanguageCode
+				language = *stream.LanguageCode
 			}
-			subtitles = append(subtitles, ExternalSubtitle{
-				URL:      subURL,
-				Title:    stream.DisplayTitle,
-				Language: lang,
+			req.Subtitles = append(req.Subtitles, ExternalSubtitle{
+				URL: partURL(server, stream.Key), Title: stream.DisplayTitle, Language: language,
 			})
 		}
 	}
+	return req, nil
+}
 
-	slog.Debug("Playing media", "output", output, "offset", startOffset, "subtitles", len(subtitles))
-	rk := ""
-	if metadata.RatingKey != nil {
-		rk = *metadata.RatingKey
+func partURL(server config.ServerTarget, key string) string {
+	separator := "?"
+	if strings.Contains(key, "?") {
+		separator = "&"
 	}
+	return server.URL + key + separator + "X-Plex-Token=" + url.QueryEscape(server.Token)
+}
 
-	title := metadata.Title
-	if metadata.Type == "track" && metadata.GrandparentTitle != nil {
-		title = *metadata.GrandparentTitle + " — " + title
-	}
-	if noReport {
-		title = "Trailer: " + title
-	}
+func PlayMedia(parent context.Context, metadata *components.Metadata, noReport bool, output config.VideoOutput, startOffset int64, servers ...config.ServerTarget) tea.Cmd {
+	server := config.MediaServer(servers...)
+	pm := GetPlayerManager()
+	ctx := pm.beginRequest(server.Context(parent))
+	return pm.resolveAndPlay(ctx, metadata, noReport, output, startOffset)
+}
 
-	return GetPlayerManager().Play(playURL, title, rk, noReport, output, startOffset, subtitles, server)
+func (pm *PlayerManager) resolveAndPlay(ctx context.Context, metadata *components.Metadata, noReport bool, output config.VideoOutput, startOffset int64) tea.Cmd {
+	return func() tea.Msg {
+		req, err := BuildPlayRequest(ctx, metadata, noReport)
+		if err != nil {
+			if ctx.Err() == context.Canceled {
+				return nil
+			}
+			return err
+		}
+		return pm.playRequest(ctx, req, output, startOffset)()
+	}
 }
 
 // FetchAndPlay handles the full playback logic: fetch full metadata, check for resume, then play
 func FetchAndPlay(ratingKey string, output config.VideoOutput, servers ...config.ServerTarget) tea.Cmd {
 	server := config.MediaServer(servers...)
+	pm := GetPlayerManager()
+	ctx := pm.beginRequest(server.Context(context.Background()))
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(server.Context(context.Background()), 30*time.Second)
-		defer cancel()
 		meta, err := plex.GetMetadata(ctx, ratingKey, true)
-		if err != nil {
-			return err
+		if ctx.Err() == context.Canceled {
+			return nil
 		}
-		meta, err = plex.ResolvePlayable(ctx, meta)
 		if err != nil {
 			return err
 		}
 
-		if meta.ViewOffset != nil && *meta.ViewOffset > 0 {
+		if meta.Type != "artist" && meta.Type != "album" && meta.ViewOffset != nil && *meta.ViewOffset > 0 {
 			return ui.ResumeChoiceMsg{Server: server,
 				Metadata: meta,
 				Output:   output,
 			}
 		}
 
-		cmd := PlayMedia(meta, false, output, 0, server)
-		if cmd != nil {
-			return cmd()
-		}
-		return nil
+		return pm.resolveAndPlay(ctx, meta, false, output, 0)()
 	}
 }
 
 // FetchAndPlayTrailer handles finding and playing the correct trailer for a media item
-func FetchAndPlayTrailer(parentMeta *components.Metadata, output config.VideoOutput, servers ...config.ServerTarget) tea.Cmd {
+func FetchAndPlayTrailer(parent context.Context, parentMeta *components.Metadata, output config.VideoOutput, servers ...config.ServerTarget) tea.Cmd {
 	server := config.MediaServer(servers...)
+	pm := GetPlayerManager()
+	ctx := pm.beginRequest(server.Context(parent))
 	return func() tea.Msg {
 		targetKey := ""
 		if parentMeta.PrimaryExtraKey != nil {
@@ -128,15 +171,14 @@ func FetchAndPlayTrailer(parentMeta *components.Metadata, output config.VideoOut
 
 		slog.Debug("FetchAndPlayTrailer: Resolved trailer key", "parent", parentMeta.Title, "target", ratingKey)
 
-		meta, err := plex.GetMetadata(server.Context(context.Background()), ratingKey, false)
+		meta, err := plex.GetMetadata(ctx, ratingKey, false)
+		if ctx.Err() == context.Canceled {
+			return nil
+		}
 		if err != nil {
 			return err
 		}
 
-		cmd := PlayMedia(meta, true, output, 0, server)
-		if cmd != nil {
-			return cmd()
-		}
-		return nil
+		return pm.resolveAndPlay(ctx, meta, true, output, 0)()
 	}
 }

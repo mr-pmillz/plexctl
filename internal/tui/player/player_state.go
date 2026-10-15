@@ -1,9 +1,16 @@
 package player
 
 import (
+	"fmt"
 	"github.com/LukeHagar/plexgo/models/operations"
 	"github.com/ygelfand/plexctl/internal/config"
 )
+
+type VideoFallbackMsg struct{ From config.VideoOutput }
+
+func (m VideoFallbackMsg) String() string {
+	return fmt.Sprintf("%s graphics could not start; using the Text renderer. Select a renderer in Settings to override.", m.From)
+}
 
 type PlayerStatus struct {
 	Server    config.ServerTarget
@@ -15,6 +22,7 @@ type PlayerStatus struct {
 	State     operations.State
 	NoReport  bool
 	AudioOnly bool
+	Overlay   bool
 	Volume    float64
 	Muted     bool
 	Spectrum  Spectrum
@@ -32,9 +40,9 @@ type (
 	PlayerStatusMsgPoller struct{}
 )
 
-func (ps *PlayerStatus) Paused() bool { return ps.State == operations.StatePaused }
+func (ps PlayerStatus) Paused() bool { return ps.State == operations.StatePaused }
 
-func (ps *PlayerStatus) Active() bool {
+func (ps PlayerStatus) Active() bool {
 	return ps.State != "" && ps.State != operations.StateStopped
 }
 

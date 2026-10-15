@@ -51,7 +51,7 @@ func FetchPoster(listID int, index int, metadata components.Metadata, servers ..
 		result := PosterLoadedMsg{ServerID: server.CacheNamespace(), ListID: listID, Index: index, RatingKey: rk}
 
 		if rk != "" {
-			if cached, ok := artwork.Cached(server.CacheNamespace()+"/"+rk, ui.PosterWidth); ok {
+			if cached, ok := artwork.Cached(server.CacheNamespace()+"/"+rk, ui.PosterWidth, ui.PosterHeight); ok {
 				return PosterLoadedMsg{ServerID: server.CacheNamespace(), ListID: listID, Index: index, RatingKey: rk, View: cached}
 			}
 		}
@@ -87,11 +87,7 @@ func FetchPoster(listID int, index int, metadata components.Metadata, servers ..
 			return result
 		}
 
-		height := ui.PosterHeight
-		if metadata.Type == "album" || metadata.Type == "track" {
-			height = min(height, max(1, (ui.PosterWidth*img.Bounds().Dy()/img.Bounds().Dx()+1)/2))
-		}
-		imgStr, err := artwork.Render(server.CacheNamespace()+"/"+rk, img, ui.PosterWidth, height)
+		imgStr, err := artwork.Render(server.CacheNamespace()+"/"+rk, img, ui.PosterWidth, ui.PosterHeight)
 		if err != nil {
 			return result
 		}

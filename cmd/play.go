@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
+	"os/signal"
 	"path/filepath"
 	"time"
 
@@ -41,6 +43,10 @@ var playCmd = &cobra.Command{
 			cfg := config.Get()
 			cfg.LogFile = filepath.Join(cfg.CacheDir, "player.log")
 			cfg.SetupLogging()
+		} else {
+			var cancel context.CancelFunc
+			ctx, cancel = signal.NotifyContext(ctx, os.Interrupt)
+			defer cancel()
 		}
 		mediaID := args[0]
 		slog.Debug("CLI Play: Fetching metadata", "mediaID", mediaID)
@@ -54,14 +60,10 @@ var playCmd = &cobra.Command{
 
 		if trailer {
 			slog.Debug("CLI Play: Resolving trailer", "mediaID", mediaID)
-			playFunc = player.FetchAndPlayTrailer(meta, output)
+			playFunc = player.FetchAndPlayTrailer(ctx, meta, output)
 		} else {
-			meta, err = plex.ResolvePlayable(ctx, meta)
-			if err != nil {
-				return err
-			}
 			offset := int64(0)
-			if !noResume && meta.ViewOffset != nil {
+			if !noResume && meta.Type != "artist" && meta.Type != "album" && meta.ViewOffset != nil {
 				offset = int64(*meta.ViewOffset)
 			}
 
@@ -71,7 +73,7 @@ var playCmd = &cobra.Command{
 				slog.Info("Playing", "title", meta.Title, "type", meta.Type)
 			}
 
-			playFunc = player.PlayMedia(meta, false, output, offset)
+			playFunc = player.PlayMedia(ctx, meta, false, output, offset)
 		}
 
 		if playFunc == nil {
@@ -79,9 +81,17 @@ var playCmd = &cobra.Command{
 		}
 
 		// Execute the playback function
+		pm := player.GetPlayerManager()
+		defer pm.Close()
+		defer func() { pm.StopPlayback()() }()
 		msg := playFunc()
 		if err, ok := msg.(error); ok {
 			return err
+		}
+		if fallback, ok := msg.(player.VideoFallbackMsg); ok {
+			if _, err := fmt.Fprintln(cmd.ErrOrStderr(), fallback.String()); err != nil {
+				return err
+			}
 		}
 		if output != config.VideoWindow {
 			// Terminal playback owns the foreground until EOF or the user's q.
@@ -91,17 +101,18 @@ var playCmd = &cobra.Command{
 		if trailer {
 			title = title + "(Trailer)"
 		}
-		pm := player.GetPlayerManager()
 		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Playing %s. Press Ctrl+C to stop.\n", title); err != nil {
 			return fmt.Errorf("write playback status: %w", err)
 		}
 
 		// Wait loop for CLI to keep progress reporting alive
-		for pm.VerifyConnection() {
+		ticker := time.NewTicker(250 * time.Millisecond)
+		defer ticker.Stop()
+		for pm.Status().Active() {
 			select {
 			case <-ctx.Done():
 				return nil
-			case <-time.After(500 * time.Millisecond):
+			case <-ticker.C:
 				// Just keep waiting
 			}
 		}

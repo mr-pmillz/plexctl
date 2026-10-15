@@ -77,6 +77,18 @@ func init() {
 	rootCmd.PersistentFlags().String("terminal-video", "auto", "Terminal video renderer for Ctrl+P or play (auto, kitty, sixel, tct)")
 	cobra.CheckErr(viper.BindPFlag("terminal_video", rootCmd.PersistentFlags().Lookup("terminal-video")))
 	playCmd.MarkFlagsMutuallyExclusive("tct", "terminal-video")
+	rootCmd.PersistentFlags().String("poster-renderer", "auto", "Poster renderer (auto, kitty, sixel, halfcell)")
+	rootCmd.PersistentFlags().String("terminal-video-mode", "suspend", "TUI terminal video mode (suspend, overlay)")
+	rootCmd.PersistentFlags().Int("sixel-video-width", 640, "Maximum Sixel video width in pixels (0 uses terminal size)")
+	rootCmd.PersistentFlags().String("window-music-visualizer", "cqt", "Music video visualization (cqt, spectrum, waves, scope, off)")
+	for _, binding := range []struct{ key, flag string }{
+		{key: "poster_renderer", flag: "poster-renderer"},
+		{key: "terminal_video_mode", flag: "terminal-video-mode"},
+		{key: "sixel_video_width", flag: "sixel-video-width"},
+		{key: "window_music_visualizer", flag: "window-music-visualizer"},
+	} {
+		cobra.CheckErr(viper.BindPFlag(binding.key, rootCmd.PersistentFlags().Lookup(binding.flag)))
+	}
 	cobra.CheckErr(rootCmd.RegisterFlagCompletionFunc("terminal-video", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 		return []string{"auto", "kitty", "sixel", "tct"}, cobra.ShellCompDirectiveNoFileComp
 	}))
@@ -117,7 +129,7 @@ func initConfig() {
 		ui.RenderError(fmt.Errorf("failed to parse config: %w", err))
 		os.Exit(1)
 	}
-	if _, err := config.ParseTerminalVideo(string(cfg.TerminalVideo)); err != nil {
+	if err := cfg.ValidatePlayback(); err != nil {
 		ui.RenderError(err)
 		os.Exit(1)
 	}

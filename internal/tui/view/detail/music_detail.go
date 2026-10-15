@@ -58,7 +58,7 @@ func (v *MusicDetailView) fetchData() tea.Msg {
 	}
 	var children []components.Metadata
 	if meta.Type == "artist" || meta.Type == "album" {
-		children, err = plex.GetChildren(ctx, v.RatingKey)
+		children, err = plex.GetMusicChildren(ctx, meta)
 		if err != nil {
 			return v.dataError(err)
 		}
@@ -231,7 +231,7 @@ func (v *MusicDetailView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (v *MusicDetailView) HelpKeys() []ui.HelpKey {
 	return []ui.HelpKey{
 		{Key: "enter", Desc: "Open Album / Track Details"},
-		{Key: "p", Desc: "Play Selected Track (First Track of an Album)"},
+		{Key: "p", Desc: "Play Selected Track or Entire Album"},
 		{Key: "v", Desc: "Choose Terminal Music Player / Separate Window"},
 		{Key: "↑/↓", Desc: "Select Album / Track"},
 		{Key: "g then letter", Desc: "Jump to an album or track title"},

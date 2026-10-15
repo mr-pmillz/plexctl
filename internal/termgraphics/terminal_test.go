@@ -51,6 +51,7 @@ func TestCapabilities(t *testing.T) {
 		{"local kitty", "\x1b_Gi=18901;OK\x1b\\\x1b_Gi=18902;OK\x1b\\", Capabilities{Responded: true, Kitty: true, KittySharedMemory: true}},
 		{"remote kitty", "\x1b_Gi=18901;OK\x1b\\\x1b_Gi=18902;EBADF:Failed to read image\x1b\\", Capabilities{Responded: true, Kitty: true}},
 		{"sixel", "\x1b[?64;1;4;22c", Capabilities{Responded: true, Sixel: true}},
+		{"cell size", "\x1b[6;20;10t\x1b[?64;4c", Capabilities{Responded: true, Sixel: true, CellWidth: 10, CellHeight: 20}},
 		{"not four", "\x1b[?64;14;24c", Capabilities{Responded: true}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -119,14 +120,21 @@ func TestKittyFramePlacement(t *testing.T) {
 }
 
 func TestNativePostersRequireUnicodePlaceholders(t *testing.T) {
+	t.Setenv("TERM_PROGRAM", "")
+	t.Setenv("TERM", "")
 	for _, tt := range []struct {
 		name string
 		want bool
 	}{
 		{"kitty(0.27.0)", false}, {"kitty(0.28.0)", true}, {"kitty(0.49.2)", true}, {"kitty(1.0.0)", true}, {"VTE(7600)", false}, {"", false},
+		{"ghostty 1.2.0", true}, {"Ghostty(1.3.0)", true}, {"WezTerm 20240203", false},
 	} {
 		if got := (Capabilities{Kitty: true, Name: tt.name}).NativePosters(); got != tt.want {
 			t.Errorf("%s: got %v", tt.name, got)
 		}
+	}
+	t.Setenv("TERM_PROGRAM", "ghostty")
+	if !(Capabilities{Kitty: true}).NativePosters() || (Capabilities{}).NativePosters() {
+		t.Fatal("Ghostty environment fallback must still require a successful graphics probe")
 	}
 }

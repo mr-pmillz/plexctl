@@ -2,7 +2,6 @@ package plex
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -110,64 +109,7 @@ func ptr[T any](v T) *T {
 
 // GetChildren retrieves children of an item (e.g. seasons of a show, or episodes of a season)
 func GetChildren(ctx context.Context, ratingKey string) ([]components.Metadata, error) {
-	cfg := config.Get()
-	server := config.ServerFromContext(ctx)
-	if server.URL == "" {
-		return nil, fmt.Errorf("no active server")
-	}
-
-	cm, err := cache.Get(cfg.CacheDir)
-	if err != nil {
-		return nil, err
-	}
-
-	cacheKey := fmt.Sprintf("%s/children/%s", server.CacheNamespace(), ratingKey)
-	var body components.MediaContainerWithMetadata
-	if err := cm.Get(cacheKey, &body); err == nil {
-		return body.MediaContainer.Metadata, nil
-	}
-
-	url := fmt.Sprintf("%s/library/metadata/%s/children", server.URL, ratingKey)
-	separator := "?"
-	if strings.Contains(url, "?") {
-		separator = "&"
-	}
-	url = fmt.Sprintf("%s%sX-Plex-Token=%s", url, separator, neturl.QueryEscape(server.Token))
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			slog.Debug("Close children response", "error", err)
-		}
-	}()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to fetch children: %s", resp.Status)
-	}
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := json.Unmarshal(data, &body); err != nil {
-		return nil, fmt.Errorf("failed to parse children: %w", err)
-	}
-
-	if body.MediaContainer == nil {
-		return nil, fmt.Errorf("no media container in children response")
-	}
-
-	_ = cm.Set(cacheKey, body, MediaCacheTTL)
-	return body.MediaContainer.Metadata, nil
+	return metadataListing(ctx, "/library/metadata/"+neturl.PathEscape(ratingKey)+"/children", nil)
 }
 
 // GetImage retrieves image data (thumb/poster) and caches it

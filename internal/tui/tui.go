@@ -158,6 +158,7 @@ func (c *Controller) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return c, tea.Batch(cmds...)
 	case tea.WindowSizeMsg:
+		cmds = append(cmds, c.player.ResizeOverlay())
 		ui.GetLayout().SetPlayerHeight(c.playerHeight(msg.Height))
 		ui.GetLayout().Update(msg.Width, msg.Height, c.playerStatus.Active())
 		for i, model := range c.tabManager.tabModels {
@@ -169,6 +170,9 @@ func (c *Controller) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case settings.SettingsFinishedMsg:
+		if err := artwork.Select(msg.Config.PosterRenderer); err != nil {
+			return c, func() tea.Msg { return err }
+		}
 		tints := append([]tint.Tint{ui.PlexctlTheme}, tint.DefaultTints()...)
 		for _, t := range tints {
 			if t.ID() == msg.Config.Theme {
@@ -177,7 +181,7 @@ func (c *Controller) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				break
 			}
 		}
-		return c, tea.Batch(c.tabManager.setupTabs(c.data, c.theme, ui.SidebarWidth), resizePlayer())
+		return c, tea.Batch(c.tabManager.setupTabs(c.data, c.theme, ui.SidebarWidth), resizePlayer(), tea.ClearScreen)
 
 	case tuiconfig.ConfigFinishedMsg:
 		cfg := config.Get()
@@ -253,6 +257,8 @@ func (c *Controller) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return c, tea.Batch(cmds...)
 	case player.PlayerStatusMsg:
 		return c, c.refreshPlayer()
+	case player.VideoFallbackMsg:
+		return c, tea.Batch(c.refreshPlayer(), c.alert.NewAlertCmd("info", msg.String()))
 
 	case tea.KeyMsg:
 		slog.Log(context.Background(), config.LevelTrace, "TUI: key press", "key", msg.String())
@@ -265,7 +271,7 @@ func (c *Controller) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return c, c.navigator.Push(letterjump.New(c.theme))
 			}
 		case "q", "ctrl+c":
-			if config.Get().CloseVideoOnQuit || c.playerStatus.AudioOnly {
+			if config.Get().CloseVideoOnQuit || c.playerStatus.AudioOnly || c.playerStatus.Overlay {
 				return c, c.player.Stop()
 			}
 			return c, tea.Quit
@@ -584,6 +590,7 @@ func (c *Controller) showHelp() tea.Cmd {
 }
 
 func (c *Controller) View() string {
+	c.player.SetOverlayVisible(c.navigator.ActiveOverlay() == nil)
 	base := c.renderBaseView()
 	base = c.navigator.Render(base)
 	return artwork.Frame(c.alert.Render(base))

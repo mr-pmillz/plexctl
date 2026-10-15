@@ -36,33 +36,53 @@ type terminalPlayback struct {
 	stdout       io.Writer
 	report       func(context.Context, PlayerStatus)
 	sharedMemory bool
+	items        []PlayItem
+	playlist     map[int64]PlayItem
+	visualizer   string
+	sixelWidth   int
+	request      context.Context
+	started      bool
+	attempted    bool
+	fallback     config.VideoOutput
 }
 
 var _ tea.ExecCommand = (*terminalPlayback)(nil)
 
-func (pm *PlayerManager) playTerminal(url, title, ratingKey string, noReport bool, preference config.VideoOutput, startOffset int64, subtitles []ExternalSubtitle, servers ...config.ServerTarget) tea.Cmd {
-	server := config.MediaServer(servers...)
+func (pm *PlayerManager) playTerminalRequest(ctx context.Context, req *PlayRequest, preference config.VideoOutput, startOffset int64) tea.Cmd {
+	server := req.Server
+	item := req.Items[0]
 	return func() tea.Msg {
+		if ctx.Err() != nil {
+			return nil
+		}
 		if !config.IsTUI {
 			termgraphics.Probe(os.Stdin, os.Stdout)
 		}
-		mpv, output, err := terminalOutput(context.Background(), preference, os.Getenv)
+		mpv, output, err := terminalOutput(ctx, preference, os.Getenv)
 		if err != nil {
 			return err
 		}
 		playback := &terminalPlayback{
-			mpv: mpv, output: output, preference: preference, subtitles: subtitles, report: reportProgress,
+			mpv: mpv, output: output, preference: preference, subtitles: req.Subtitles, report: pm.reportTerminal, items: req.Items,
+			sixelWidth: config.Get().SixelVideoWidth, request: ctx,
 			status: PlayerStatus{Server: server,
-				Title: title, File: url, Key: ratingKey, NoReport: noReport,
+				Title: item.Title, File: item.URL, Key: item.RatingKey, NoReport: req.NoReport, Duration: item.Duration,
 				Time: float64(startOffset) / 1000,
 			},
 		}
+		if req.Music {
+			playback.visualizer = musicVideoGraph(config.Get().WindowMusicVisualizer)
+		}
 		// A separate socket prevents a later TUI from attaching to a foreground
 		// player whose terminal belongs to this session.
-		pm.StopPlayback()()
+		pm.stopCurrent(ctx)
 		finished := func(err error) tea.Msg {
+			pm.flushReports()
 			if err != nil {
 				return err
+			}
+			if playback.fallback != config.VideoWindow {
+				return VideoFallbackMsg{From: playback.fallback}
 			}
 			return PlayerStatusMsg{}
 		}
@@ -113,10 +133,33 @@ func (p *terminalPlayback) args(socket string) []string {
 		// of the Lua OSC and its window-system mouse events.
 		args = append(args, "--osc=no")
 	}
+	if p.visualizer != "" {
+		args = append(args, "--lavfi-complex="+p.visualizer)
+	}
+	if p.fallback != config.VideoWindow {
+		args = append(args, "--osd-playing-msg="+VideoFallbackMsg{From: p.fallback}.String())
+	}
 	return args
 }
 
 func (p *terminalPlayback) Run() error {
+	if p.request != nil && p.request.Err() != nil {
+		return nil
+	}
+	initial := p.status
+	err := p.run()
+	if err == nil || p.preference != config.VideoAuto || p.started || !p.attempted || p.output == config.VideoTCT {
+		return err
+	}
+	if _, _, fallbackErr := terminalOutput(context.Background(), config.VideoTCT, os.Getenv); fallbackErr != nil {
+		return err
+	}
+	p.fallback, p.output, p.preference = p.output, config.VideoTCT, config.VideoTCT
+	p.status, p.playlist = initial, nil
+	return p.run()
+}
+
+func (p *terminalPlayback) run() error {
 	for _, stream := range []any{p.stdin, p.stdout} {
 		if f, ok := stream.(interface{ Fd() uintptr }); ok && !term.IsTerminal(int(f.Fd())) {
 			return fmt.Errorf("terminal video requires an interactive terminal")
@@ -185,6 +228,19 @@ func (p *terminalPlayback) Run() error {
 		cmd.Stdout = graphics
 		defer func() { _, _ = io.WriteString(p.stdout, termgraphics.Wrap(graphics.DeleteImages())) }()
 	}
+	if p.output == config.VideoSixel {
+		columns, rows := 80, 24
+		cw, ch := termgraphics.Current().CellWidth, termgraphics.Current().CellHeight
+		if input, ok := p.stdin.(*os.File); ok {
+			if w, h, err := term.GetSize(int(input.Fd())); err == nil {
+				columns, rows = w, h
+			}
+			if w, h := terminalCellSize(input); w > 0 && h > 0 {
+				cw, ch = int(w), int(h)
+			}
+		}
+		cmd.Args = append(cmd.Args, sixelSizeArgs(p.sixelWidth, columns, rows, cw, ch)...)
+	}
 	// Our wrapper handles actual tmux panes. Also remove stale tmux variables
 	// from direct Kitty windows so mpv cannot wrap their graphics by mistake.
 	for _, entry := range os.Environ() {
@@ -212,6 +268,7 @@ func (p *terminalPlayback) Run() error {
 			defer func() { _, _ = io.WriteString(p.stdout, "\x1b[?1003l") }()
 		}
 	}
+	p.attempted = true
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start terminal player: %w", err)
 	}
@@ -258,8 +315,32 @@ func (p *terminalPlayback) Run() error {
 			return err
 		}
 	}
-	// Request ID 1 lets us catch a rejected load even when mpv stays idle.
-	if err := sendTerminalCommand(conn, 1, "loadfile", p.status.File, "replace"); err != nil {
+	// Build the queue paused, using per-file options so resume applies only
+	// to the first item. Playlist IDs identify repeated paths unambiguously.
+	items := p.items
+	if len(items) == 0 {
+		items = []PlayItem{{URL: p.status.File, Title: p.status.Title, RatingKey: p.status.Key}}
+	}
+	pending := []terminalEvent{}
+	for i, item := range items {
+		offset := 0.0
+		flags, pause := "append", "no"
+		if i == 0 {
+			flags, pause, offset = "replace", "yes", p.status.Time
+		}
+		command := map[string]any{"name": "loadfile", "url": item.URL, "flags": flags,
+			"options": map[string]string{"start": fmt.Sprintf("%.3f", offset),
+				"pause": pause, "force-media-title": item.Title}}
+		if err := sendTerminalRequest(conn, 1, command); err != nil {
+			return err
+		}
+		// Drain acknowledgements while building large artist queues. Otherwise
+		// a full event channel can block mpv's IPC output and our next write.
+		if err := awaitQueueLoad(events, &pending); err != nil {
+			return err
+		}
+	}
+	if err := sendTerminalCommand(conn, 3, "get_property", "playlist"); err != nil {
 		return err
 	}
 
@@ -319,6 +400,72 @@ func (p *terminalPlayback) Run() error {
 		}
 		return nil
 	}
+	handleEvent := func(ev terminalEvent) error {
+		if ev.RequestID == 1 && ev.Error != "success" {
+			return fmt.Errorf("mpv rejected the media stream")
+		}
+		if ev.RequestID == 3 {
+			var playlist []struct {
+				ID int64 `json:"id"`
+			}
+			if ev.Error != "success" || json.Unmarshal(ev.Data, &playlist) != nil || len(playlist) != len(items) {
+				return fmt.Errorf("mpv did not accept the complete playback queue")
+			}
+			p.playlist = make(map[int64]PlayItem, len(items))
+			for i, item := range items {
+				p.playlist[playlist[i].ID] = item
+			}
+			if err := sendTerminalCommand(conn, 0, "set_property", "pause", false); err != nil {
+				return err
+			}
+		}
+		if ev.RequestID == 2 && ev.Error != "success" {
+			return fmt.Errorf("mpv could not draw video controls; use an mpv build with libass OSD support")
+		}
+		switch ev.Event {
+		case "start-file":
+			if item, ok := p.playlist[ev.PlaylistEntryID]; ok {
+				setTrack(&p.status, item)
+			}
+		case "file-loaded":
+			p.started = true
+			loaded = true
+			p.status.Play()
+			for _, sub := range p.subtitles {
+				if err := sendTerminalCommand(conn, 0, "sub-add", sub.URL, "auto", sub.Title, sub.Language); err != nil {
+					return err
+				}
+			}
+			p.reportStatus()
+		case "property-change":
+			oldState := p.status.State
+			p.applyProperty(ev)
+			if controls != nil && len(ev.Data) > 0 && string(ev.Data) != "null" {
+				switch ev.ID {
+				case 6:
+					_ = json.Unmarshal(ev.Data, &controls.speed)
+				case 7:
+					_ = json.Unmarshal(ev.Data, &controls.subtitles)
+				}
+			}
+			if loaded && p.status.State != oldState {
+				p.reportStatus()
+			}
+		case "end-file":
+			if ev.Reason == "error" {
+				return fmt.Errorf("mpv could not play the stream using %s; check the server connection and terminal graphics support", p.output)
+			}
+			if ev.Reason == "eof" && p.status.Duration > 0 {
+				p.status.Time = p.status.Duration
+			}
+			p.status.State = operations.StateStopped
+			p.reportStatus()
+			loaded = false
+		case "shutdown":
+			// Continue draining properties until the process exits.
+		}
+		return nil
+	}
 	for {
 		select {
 		case data, ok := <-keys:
@@ -368,50 +515,54 @@ func (p *terminalPlayback) Run() error {
 					return fmt.Errorf("terminal player disconnected from IPC")
 				}
 			}
-			if ev.RequestID == 1 && ev.Error != "success" {
-				return fmt.Errorf("mpv rejected the media stream")
+			// Decoder events can arrive before playlist discovery, including EOF
+			// for tiny files while paused. Replay them only after IDs are known.
+			if p.playlist == nil && ev.Event != "" && (ev.Event != "end-file" || ev.Reason != "error") {
+				pending = append(pending, ev)
+				continue
 			}
-			if ev.RequestID == 2 && ev.Error != "success" {
-				return fmt.Errorf("mpv could not draw video controls; use an mpv build with libass OSD support")
+			if err := handleEvent(ev); err != nil {
+				return err
 			}
-			switch ev.Event {
-			case "file-loaded":
-				loaded = true
-				p.status.Play()
-				for _, sub := range p.subtitles {
-					if err := sendTerminalCommand(conn, 0, "sub-add", sub.URL, "auto", sub.Title, sub.Language); err != nil {
+			if p.playlist != nil && len(pending) > 0 {
+				for _, buffered := range pending {
+					if err := handleEvent(buffered); err != nil {
 						return err
 					}
 				}
-				p.reportStatus()
-			case "property-change":
-				oldState := p.status.State
-				p.applyProperty(ev)
-				if controls != nil && len(ev.Data) > 0 && string(ev.Data) != "null" {
-					switch ev.ID {
-					case 6:
-						_ = json.Unmarshal(ev.Data, &controls.speed)
-					case 7:
-						_ = json.Unmarshal(ev.Data, &controls.subtitles)
-					}
-				}
-				if loaded && p.status.State != oldState {
-					p.reportStatus()
-				}
-			case "end-file":
-				if ev.Reason == "error" {
-					return fmt.Errorf("mpv could not play the stream using %s; check the server connection and terminal graphics support", p.output)
-				}
-				if ev.Reason == "eof" && p.status.Duration > 0 {
-					p.status.Time = p.status.Duration
-				}
-			case "shutdown":
-				// Continue draining properties until the process exits.
+				pending = nil
 			}
 		case <-ticker.C:
 			if loaded {
 				p.reportStatus()
 			}
+		}
+	}
+}
+
+func awaitQueueLoad(events <-chan terminalEvent, pending *[]terminalEvent) error {
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case event, ok := <-events:
+			if !ok {
+				return fmt.Errorf("mpv disconnected while building the playback queue")
+			}
+			if event.RequestID == 1 {
+				if event.Error != "success" {
+					return fmt.Errorf("mpv rejected the media stream")
+				}
+				return nil
+			}
+			if event.Event == "end-file" && event.Reason == "error" {
+				return fmt.Errorf("mpv could not open a queued media stream")
+			}
+			if event.Event != "" {
+				*pending = append(*pending, event)
+			}
+		case <-timer.C:
+			return fmt.Errorf("mpv did not acknowledge the queued media stream")
 		}
 	}
 }
@@ -438,12 +589,13 @@ func (p *terminalPlayback) reportStatus() {
 }
 
 type terminalEvent struct {
-	Event     string          `json:"event"`
-	ID        int             `json:"id"`
-	Data      json.RawMessage `json:"data"`
-	Reason    string          `json:"reason"`
-	RequestID int             `json:"request_id"`
-	Error     string          `json:"error"`
+	PlaylistEntryID int64           `json:"playlist_entry_id"`
+	Event           string          `json:"event"`
+	ID              int             `json:"id"`
+	Data            json.RawMessage `json:"data"`
+	Reason          string          `json:"reason"`
+	RequestID       int             `json:"request_id"`
+	Error           string          `json:"error"`
 }
 
 func (p *terminalPlayback) applyProperty(ev terminalEvent) {
@@ -491,14 +643,15 @@ func connectTerminal(socket string, done <-chan struct{}) (net.Conn, error) {
 }
 
 func sendTerminalCommand(conn net.Conn, requestID int, args ...any) error {
+	return sendTerminalRequest(conn, requestID, args)
+}
+
+func sendTerminalRequest(conn net.Conn, requestID int, command any) error {
 	if err := conn.SetWriteDeadline(time.Now().Add(2 * time.Second)); err != nil {
 		return fmt.Errorf("set player IPC deadline: %w", err)
 	}
-	command := struct {
-		Command   []any `json:"command"`
-		RequestID int   `json:"request_id"`
-	}{args, requestID}
-	if err := json.NewEncoder(conn).Encode(command); err != nil {
+	request := map[string]any{"command": command, "request_id": requestID}
+	if err := json.NewEncoder(conn).Encode(request); err != nil {
 		return fmt.Errorf("send player IPC command: %w", err)
 	}
 	return nil

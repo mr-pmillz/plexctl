@@ -1,6 +1,7 @@
 package player
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -14,6 +15,7 @@ type ipcClient struct {
 	encoder *json.Encoder
 	decoder *json.Decoder
 	nextID  uint64
+	events  []terminalEvent
 }
 
 func openIPC(socket string) (*ipcClient, error) {
@@ -34,12 +36,16 @@ func (c *ipcClient) command(command any, result any) error {
 	}
 	for {
 		var reply struct {
+			terminalEvent
 			ID    uint64          `json:"request_id"`
 			Error string          `json:"error"`
 			Data  json.RawMessage `json:"data"`
 		}
 		if err := c.decoder.Decode(&reply); err != nil {
 			return err
+		}
+		if reply.Event == "start-file" || reply.Event == "end-file" || reply.Event == "file-loaded" {
+			c.events = append(c.events, reply.terminalEvent)
 		}
 		if reply.ID != c.nextID {
 			continue
@@ -51,6 +57,41 @@ func (c *ipcClient) command(command any, result any) error {
 			return json.Unmarshal(reply.Data, result)
 		}
 		return nil
+	}
+}
+
+// loadfile's acknowledgement precedes decoder/VO initialization. Check the
+// actual result while the first item is paused, before declaring success.
+func (c *ipcClient) waitInitialFile(ctx context.Context, video bool) error {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if err := c.get("idle-active", nil); err != nil {
+			return fmt.Errorf("mpv disconnected while opening the stream: %w", err)
+		}
+		loaded := false
+		for _, event := range c.events {
+			if event.Event == "end-file" && event.Reason == "error" {
+				return fmt.Errorf("mpv could not open the stream or initialize the video output")
+			}
+			loaded = loaded || event.Event == "file-loaded"
+		}
+		if loaded {
+			configured := !video
+			if video {
+				_ = c.get("vo-configured", &configured)
+			}
+			if configured {
+				return nil
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("mpv did not finish opening the stream and video output: %w", ctx.Err())
+		case <-ticker.C:
+		}
 	}
 }
 

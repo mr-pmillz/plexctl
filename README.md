@@ -69,7 +69,9 @@ golangci-lint run
 golangci-lint run --build-tags integration
 ```
 
-The audio integration test uses a local mpv installation and skips when mpv is unavailable.
+Player integration tests use synthetic media and a local mpv installation, and
+skip when mpv is unavailable. `PLEXCTL_TEST_MPV=/path/to/mpv` selects an alternate
+build for the overlay compatibility test.
 Pull requests run these checks and `govulncheck` in GitHub Actions.
 
 ## Features
@@ -79,6 +81,10 @@ Pull requests run these checks and `govulncheck` in GitHub Actions.
 - **Fuzzy Search**: Find exactly what you're looking for instantly.
 - **Cross-Platform**: Supports macOS, Linux, and Windows.
 - **Flexible Output**: CLI commands support table, JSON, YAML, and CSV formats.
+- **Complete music queues**: Play an artist or album with per-track progress,
+  including soundtrack and compilation contributions.
+- **Terminal graphics**: Kitty/Ghostty and Sixel posters, suspend/overlay video,
+  and separate music visualizers for the TUI and mpv window.
 
 ## Usage
 
@@ -113,9 +119,14 @@ plexctl play 12345 --terminal-video auto
 Graphics playback requires a compatible terminal and an mpv build that lists the
 chosen renderer in `mpv --vo=help`. plexctl probes the attached terminal, including
 through tmux, and uses text output when graphics are unavailable. In tmux 3.3+,
-playback temporarily zooms its pane and restores the layout on exit.
+suspended playback temporarily zooms its pane and restores the layout on exit.
 On Linux, a terminal that confirms local shared-memory access uses that faster
 transport; SSH and other terminals keep using portable graphics packets.
+
+**Ctrl+S → Terminal Video Mode → Overlay** keeps the TUI and its player controls
+active while video draws over the content pane. Use **Space**, **[ / ]**,
+**+ / -**, **m**, and **x** to control playback. Sixel video defaults to a centered
+640-pixel width cap; change it in Settings or with `--sixel-video-width`.
 
 Mouse support is enabled automatically: click posters, navigation, and dialog
 options; scroll with the wheel; right click to go back. During terminal video,
@@ -130,8 +141,9 @@ In Sessions, History, and Tasks, **j/k** select rows and **h/l** scroll wide tab
 left/right. The search Status page scrolls with **hjkl** too, including during
 indexing. Arrow keys provide the same navigation.
 
-Movie and TV cover posters automatically use high-resolution images in Kitty
-0.28+ (also through tmux), with text posters as a fallback in other terminals.
+Movie and TV cover posters automatically use native images in Kitty 0.28+,
+Ghostty, and terminals advertising Sixel (also through tmux), with half-cell
+text as a fallback. **Ctrl+S → Poster Renderer** overrides automatic detection.
 See the [TUI guide](docs/content/tui.mdx) for configuration and playback details.
 
 Music libraries support artist → album → track navigation. Press **p** to play
@@ -139,7 +151,10 @@ the selected song in the TUI, with a live stereo waveform and no extra
 window. **v** chooses terminal audio or a separate window; **Ctrl+S → Music
 Player** saves the default. Album covers appear in the artist gallery and beside
 the track list. Scrolling automatically loads more artists. Playing an artist or
-album starts its first playable track.
+album queues all its available tracks, updating the title and reporting each
+track to Plex. Artist browsing includes soundtrack and compilation albums.
+Windowed music offers **cqt**, **spectrum**, **waves**, and **scope** visualizations
+under **Ctrl+S → Music Video Visualizer**, plus **off**.
 
 Click the right-hand **A–Z rail**, or press **g then a letter**, to jump through
 movies, TV shows, artists, albums, and track titles. Missing library pages load

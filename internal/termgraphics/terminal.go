@@ -30,12 +30,24 @@ type Capabilities struct {
 	KittySharedMemory bool
 	Sixel             bool
 	Name              string
+	CellWidth         int
+	CellHeight        int
 }
 
 // NativePosters requires Unicode placeholders, which basic Kitty graphics
 // support alone does not guarantee (notably on older Kitty and other emulators).
 func (c Capabilities) NativePosters() bool {
-	if !c.Kitty || !strings.HasPrefix(c.Name, "kitty(") {
+	if !c.Kitty {
+		return false
+	}
+	name := strings.ToLower(c.Name)
+	if strings.HasPrefix(name, "ghostty") {
+		return true
+	}
+	if name == "" && (strings.EqualFold(os.Getenv("TERM_PROGRAM"), "ghostty") || os.Getenv("TERM") == "xterm-ghostty") {
+		return true
+	}
+	if !strings.HasPrefix(name, "kitty(") {
 		return false
 	}
 	version := strings.Split(strings.TrimSuffix(strings.TrimPrefix(c.Name, "kitty("), ")"), ".")
@@ -174,6 +186,7 @@ func ZoomPane() (func(), error) {
 
 var attributes = regexp.MustCompile(`\x1b\[\?([0-9;]+)c`)
 var terminalName = regexp.MustCompile(`\x1bP>\|([^\x1b]+)\x1b\\`)
+var cellSizeReply = regexp.MustCompile(`\x1b\[6;(\d+);(\d+)t`)
 
 func parseCapabilities(reply string) Capabilities {
 	c := Capabilities{
@@ -192,6 +205,10 @@ func parseCapabilities(reply string) Capabilities {
 		c.Responded = true
 	}
 	c.Responded = c.Responded || c.Kitty
+	if match := cellSizeReply.FindStringSubmatch(reply); match != nil {
+		c.CellHeight, _ = strconv.Atoi(match[1])
+		c.CellWidth, _ = strconv.Atoi(match[2])
+	}
 	return c
 }
 
@@ -258,7 +275,7 @@ func Probe(input *os.File, output io.Writer) Capabilities {
 	}()
 	shm, cleanup := sharedMemoryQuery()
 	defer cleanup()
-	_, _ = io.WriteString(output, Wrap("\x1b_Ga=q,U=1,i=18901,s=1,v=1,f=24;AAAA\x1b\\"+shm+"\x1b[c\x1b[>q"))
+	_, _ = io.WriteString(output, Wrap("\x1b_Ga=q,U=1,i=18901,s=1,v=1,f=24;AAAA\x1b\\"+shm+"\x1b[c\x1b[>q\x1b[16t"))
 	timer := time.NewTimer(350 * time.Millisecond)
 	select {
 	case <-done:

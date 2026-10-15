@@ -45,7 +45,7 @@ func TestNativePosterLifecycle(t *testing.T) {
 		t.Fatal("incorrect placeholder dimensions")
 	}
 	frame := Frame(lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Render(view))
-	if len(posters.wanted) != 1 {
+	if len(active.renderer.(*kittyRenderer).wanted) != 1 {
 		t.Fatal("image lost when composing frame")
 	}
 	if _, err := w.Write([]byte(frame)); err != nil {
@@ -95,7 +95,7 @@ func TestNativePosterLifecycle(t *testing.T) {
 	if size()-before <= int64(len(frame)) {
 		t.Fatal("poster not reuploaded after returning from playback")
 	}
-	dir := posters.dir
+	dir := active.renderer.(*kittyRenderer).dir
 	if err := w.Close(); err != nil {
 		t.Fatal(err)
 	}

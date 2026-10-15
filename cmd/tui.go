@@ -54,7 +54,7 @@ func runTUI(cmd *cobra.Command) (runErr error) {
 		slog.Debug("Graphics passthrough unavailable", "error", err)
 	}
 	defer restore()
-	output, err := artwork.Open(os.Stdout, caps.NativePosters())
+	output, err := artwork.OpenRenderer(os.Stdout, cfg.PosterRenderer, caps)
 	if err != nil {
 		return fmt.Errorf("initialize poster graphics: %w", err)
 	}
@@ -75,7 +75,7 @@ func runTUI(cmd *cobra.Command) (runErr error) {
 	p := tea.NewProgram(tui.NewController(result), tea.WithAltScreen(), tea.WithOutput(output), tea.WithMouseCellMotion())
 	defer func() {
 		pm := player.GetPlayerManager()
-		if pm.Status().AudioOnly || cfg.CloseVideoOnQuit {
+		if pm.Status().AudioOnly || pm.Status().Overlay || cfg.CloseVideoOnQuit {
 			pm.StopPlayback()()
 		}
 		pm.Close()

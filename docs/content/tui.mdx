@@ -32,7 +32,7 @@ Mouse support is enabled automatically, including inside tmux:
   an open dialog do not activate the library behind it.
 - Hold **Shift** while selecting text to use the terminal's own selection.
 
-During terminal playback, **left click** pauses/resumes, **wheel up/down** seeks
+During suspended terminal playback, **left click** pauses/resumes, **wheel up/down** seeks
 forward/backward, and **right click** stops and returns to the library. These use
 mpv's Space, Right/Left, and q bindings, including any custom bindings you set.
 
@@ -105,12 +105,21 @@ Pressing `L` opens the configuration manager. Here you can:
 
 Music libraries open **artists → albums → tracks**. Click an item or press
 **Enter** to browse, then press **`p`** to play the selected track. Playing an
-artist or album directly starts its first playable track; open the album to
-choose another song. **Esc** or right click returns to the previous level.
+album queues the complete album in Plex's track order; playing an artist queues
+all their available tracks. The title and progress follow each track, and Plex
+receives each track's play progress and completion. Stopping playback or choosing
+another item cancels a queue that is still loading. **Esc** or right click returns
+to the previous browsing level.
+
+Artist pages include soundtracks and compilations where the artist contributes
+tracks, using Plex's section/artist queries. Queues and progress reporting retain
+the originating server and credentials, including Friends Libraries. Artist and
+album queue playback also works with `plexctl play <id>`.
 
 The artist page displays a grid of album covers with titles and years. Album
 art also appears beside the track list after selecting an album. It uses native
-high-resolution images in Kitty and text images elsewhere, and resizes with the pane.
+high-resolution images in Kitty, Ghostty, and Sixel terminals, with text as a
+fallback, and resizes with the pane.
 Library scrolling loads additional artists automatically with either the mouse
 wheel or keyboard, in both poster and list views. A failed page can be retried
 with `r` without discarding the artists already loaded.
@@ -168,6 +177,12 @@ The waveform requires mpv with Lua and FFmpeg/lavfi (`showwaves`); the spectrum
 requires its lavfi audio filters. Music playback remains available in minimal
 builds without visualization support. Terminal music stops when you quit the TUI.
 
+Music played in a separate mpv window has its own video visualizer. Choose
+**Ctrl+S → Music Video Visualizer**: **cqt**, **spectrum**, **waves**, **scope**, or
+**off**. This also applies when explicitly playing music through terminal video
+from the CLI. It requires the corresponding FFmpeg/lavfi filter in mpv. **z**
+continues to control the audio-only TUI visualizer.
+
 When playback is started, a playback bar appears at the bottom showing:
 - Current progress and duration.
 - Play/Pause status.
@@ -180,8 +195,16 @@ player bar to pause/resume, and `x` or the footer's **Stop** action to stop.
 Press **`v`** on a movie or episode to open the terminal playback menu. Select
 **Kitty graphics**, **Sixel graphics**, **Text**, or **Automatic**. The menu shows
 the detected terminal capabilities. **`ctrl+p`** uses the preference saved in
-Settings. Playback takes over the full terminal; the library view returns when
+Settings. By default playback takes over the full terminal; the library view returns when
 the video ends or you press **`q`**.
+
+Choose **Ctrl+S → Terminal Video Mode → Overlay** to draw video over the content
+pane while keeping the TUI active. The sidebar, settings, and player controls
+remain available. Use **Space** to pause, **[ / ]** to seek, **+ / -** for volume,
+**m** to mute, and **x** to stop. Dialogs temporarily hide video and closing them
+restores it, including paused frames. Quitting the TUI stops overlay playback.
+Overlay uses these TUI controls; the on-video controls below belong to suspend
+mode. CLI terminal playback always uses suspend mode.
 
 Kitty video has a control bar drawn into the image, with elapsed/total time,
 play/pause, **-10s / +10s**, a clickable and draggable timeline, volume,
@@ -192,7 +215,7 @@ Press **`h`** to hide or show the controls. In Kitty, **Esc** also returns to th
 library and **+ / -** adjust volume. Scrolling over the volume controls adjusts
 volume; scrolling elsewhere seeks.
 
-During playback, these shortcuts are available in every terminal renderer:
+During suspended playback, these shortcuts are available in every terminal renderer:
 
 - **`Space`** or **left click on the picture**: Pause or resume.
 - **`Left` / `Right`** or **wheel**: Seek backward or forward.
@@ -202,8 +225,8 @@ During playback, these shortcuts are available in every terminal renderer:
 - **`q`** or **right click**: Stop and return to the library.
 
 The resume prompt, external subtitle tracks, and Plex watch progress also work
-with terminal playback. The library's `x` shortcut applies to windowed playback;
-use `q` while terminal video is playing.
+with terminal playback. Use **x** for windowed or overlay playback and **q** for
+suspended playback.
 
 Choose **Terminal Video** in **`ctrl+s`** Settings:
 
@@ -218,13 +241,15 @@ Auto detection queries the attached terminal, including through tmux. Kitty is
 preferred when supported, followed by Sixel, then TCT. If a terminal does not
 answer, known terminal environment variables are used outside multiplexers.
 Check your mpv build with **`mpv --vo=help`**. An explicitly selected renderer
-that is missing from mpv produces an error instead of silently changing output.
+that is missing from mpv produces an error. If an automatically selected graphics
+output fails during startup, playback retries with Text and shows a notice.
 
 You can override the preference for a launch or play directly from the CLI:
 
 ```bash
 plexctl tui --terminal-video kitty
 plexctl tui --terminal-video sixel
+plexctl tui --terminal-video-mode overlay --sixel-video-width 480
 plexctl play 12345 --terminal-video auto
 plexctl play 12345 --terminal-video sixel --no-resume
 ```
@@ -235,7 +260,7 @@ open a video window. The existing `plexctl play 12345 --tct` explicitly selects 
 
 Kitty output uses escape-code transport, so it does not require shared memory
 with the terminal when using SSH. With tmux 3.3+, plexctl temporarily enables
-graphics passthrough for its own pane. During graphics playback it zooms that
+graphics passthrough for its own pane. During suspended graphics playback it zooms that
 pane so video cannot cover neighboring panes, then restores the layout and
 passthrough setting on exit. Older mpv releases are supported by forwarding
 graphics and input through plexctl. GNU screen uses TCT in auto mode.
@@ -245,14 +270,24 @@ launch plexctl (or attach tmux) from the Kitty application.
 See [mpv's video output documentation](https://mpv.io/manual/stable/#video-output-drivers)
 for terminal requirements and configuration.
 
+Sixel video defaults to a centered **640-pixel width cap** to reduce frame cost
+on wide terminals. Change **Ctrl+S → Sixel Video Width**, use
+`--sixel-video-width 480`, or set it to **0** for automatic sizing. Overlay mode
+uses the content pane's dimensions and does not zoom tmux panes.
+
 ### High-resolution cover posters
 
-In Kitty 0.28+, using Unicode image placeholders, movie
-and TV posters and album covers automatically use native images, retaining up to 768 pixels on
-their longest side instead of reducing the cover to 15 colored text cells.
-This works in grids, details, and through tmux. Posters scroll and clip with the
-TUI and are restored after video playback. Other terminals retain text posters.
-No cache clearing or configuration change is required.
+Poster selection is automatic: Kitty Unicode placeholders in **Kitty 0.28+**
+and **Ghostty**, then **Sixel** if the terminal advertises it, then half-cell
+text. Movie/TV posters and album covers keep their proportions, including square
+album art. Kitty retains up to 768 pixels on the longest side and bounds live
+terminal images; Sixel fits the actual cells and crops at viewport edges.
+
+Posters work in grids and details, with clipping, repeated covers, dialog redraws,
+and restoration after terminal playback. tmux graphics use passthrough. Choose
+**Ctrl+S → Poster Renderer** or `--poster-renderer` to force `kitty`, `sixel`, or
+`halfcell`. Return to `auto` for capability-based selection. Sixel must be enabled
+in the terminal; a forced protocol still requires terminal support.
 
 ### User Switching (Plex Home)
 Pressing `u` opens the "Who's watching?" profile picker. This allows you to switch between managed users in your Plex Home.

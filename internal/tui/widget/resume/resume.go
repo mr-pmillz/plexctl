@@ -1,6 +1,7 @@
 package resume
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -71,7 +72,7 @@ func (m *ResumeOverlayModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if resume && m.Metadata != nil && m.Metadata.ViewOffset != nil {
 				offset = int64(*m.Metadata.ViewOffset)
 			}
-			return nil, player.PlayMedia(m.Metadata, false, m.Output, offset, m.server)
+			return nil, player.PlayMedia(context.Background(), m.Metadata, false, m.Output, offset, m.server)
 		case "esc":
 			return nil, nil
 		}

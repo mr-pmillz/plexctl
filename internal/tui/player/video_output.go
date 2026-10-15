@@ -73,3 +73,24 @@ func selectTerminalOutput(preference config.VideoOutput, help string, getenv fun
 	}
 	return config.VideoWindow, fmt.Errorf("no compatible terminal video output found; check 'mpv --vo=help' and select kitty, sixel, or tct in Settings")
 }
+
+// sixelSizeArgs bounds the pixel work without stretching the physical cells.
+// Both the pixel size and matching cell geometry must describe the same area.
+func sixelSizeArgs(limit, columns, rows, cellW, cellH int) []string {
+	if limit <= 0 {
+		return nil
+	}
+	if cellW <= 0 || cellH <= 0 {
+		cellW, cellH = 8, 16
+	}
+	columns, rows = max(1, columns), max(2, rows)
+	width := min(columns*cellW, limit)
+	cols := max(1, width/cellW)
+	return []string{
+		fmt.Sprintf("--vo-sixel-width=%d", width),
+		fmt.Sprintf("--vo-sixel-height=%d", rows*cellH),
+		fmt.Sprintf("--vo-sixel-cols=%d", cols),
+		fmt.Sprintf("--vo-sixel-rows=%d", rows),
+		fmt.Sprintf("--vo-sixel-left=%d", (columns-cols)/2+1),
+	}
+}
