@@ -21,7 +21,9 @@ func terminalOutput(ctx context.Context, preference config.VideoOutput, getenv f
 	}
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	help, err := exec.CommandContext(ctx, mpv, "--no-config", "--vo=help").Output()
+	cmd := exec.CommandContext(ctx, mpv, "--no-config", "--vo=help")
+	cmd.WaitDelay = time.Second
+	help, err := cmd.Output()
 	if err != nil {
 		return "", config.VideoWindow, fmt.Errorf("could not list mpv video outputs: %w", err)
 	}

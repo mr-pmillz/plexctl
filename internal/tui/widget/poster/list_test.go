@@ -19,3 +19,25 @@ func TestPosterListResizeKeepsSelectionVisible(t *testing.T) {
 		t.Fatalf("resize left selection %d outside the row beginning at %d", m.Cursor, m.Offset)
 	}
 }
+
+func TestPosterSelectionRetainsItemWhenListChangesBeforeDispatch(t *testing.T) {
+	items := []components.Metadata{{Title: "Selected"}, {Title: "Other"}}
+	list := NewPosterList(0, "Movies", items, ui.PlexctlTheme)
+	list.Active = true
+	grid := NewPosterGrid(items, ui.PlexctlTheme)
+	for _, model := range []tea.Model{list, grid} {
+		_, cmd := model.Update(ui.KeyPress("enter"))
+		if cmd == nil {
+			t.Fatal("selection did not produce a command")
+		}
+		switch model := model.(type) {
+		case *PosterList:
+			model.SetItems(nil)
+		case *PosterGrid:
+			model.SetItems(nil)
+		}
+		if selection := cmd().(ItemSelectedMsg); selection.Metadata.Title != "Selected" {
+			t.Fatal("queued selection changed after the list was refreshed")
+		}
+	}
+}

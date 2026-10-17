@@ -47,10 +47,29 @@ type Controller struct {
 	visualTick      time.Time
 	focus           paneFocus
 	focusedAlphabet *ui.AlphabetRail
+	userSwitchID    uint64
+	userPickerID    uint64
+	reloadID        uint64
 }
 
-type switchUserSuccessMsg struct{}
-type reloadedDataMsg plex.LoaderResult
+type usersLoadedMsg struct {
+	id    uint64
+	users []operations.HomeUser
+	err   error
+}
+
+type switchUserSuccessMsg struct {
+	id         uint64
+	owner      Overlay
+	homeUser   config.HomeUser
+	invalidPin bool
+	err        error
+}
+type reloadedDataMsg struct {
+	id   uint64
+	data plex.LoaderResult
+	err  error
+}
 
 func NewController(data plex.LoaderResult) *Controller {
 	cfg := config.Get()
@@ -124,6 +143,14 @@ func (c *Controller) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
+	case view.DataLoadedMsg:
+		for _, model := range c.tabManager.tabModels {
+			if msg.Owns(model) {
+				_, cmd := model.Update(msg)
+				return c, cmd
+			}
+		}
+		return c, nil
 	case view.SearchIndexProgressMsg, view.SearchIndexFinishedMsg:
 		for _, model := range c.tabManager.tabModels {
 			if status, ok := model.(*view.SearchStatusView); ok {
@@ -204,6 +231,17 @@ func (c *Controller) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ui.UserSelectionMsg:
 		return c, c.navigator.Push(userpicker.NewUserPickerOverlayModel(msg.Users, c.theme))
+	case usersLoadedMsg:
+		if msg.id != c.userPickerID {
+			return c, nil
+		}
+		if msg.err != nil {
+			return c, c.alert.NewAlertCmd("error", msg.err.Error())
+		}
+		if len(msg.users) <= 1 {
+			return c, nil
+		}
+		return c.Update(ui.UserSelectionMsg{Users: msg.users})
 
 	case ui.InvalidPinMsg:
 		if overlay := c.navigator.ActiveOverlay(); overlay != nil {
@@ -219,12 +257,39 @@ func (c *Controller) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return c, c.handleSwitchUser(msg)
 
 	case switchUserSuccessMsg:
-		c.navigator.Pop()
-		// Return a command that triggers a full data reload
-		return c, c.fullReload()
+		if msg.id != c.userSwitchID || msg.owner != c.navigator.ActiveOverlay() {
+			return c, nil
+		}
+		if msg.invalidPin {
+			return c.Update(ui.InvalidPinMsg{})
+		}
+		if msg.err != nil {
+			return c, c.alert.NewAlertCmd("error", msg.err.Error())
+		}
+		cfg := config.Get()
+		c.userPickerID++
+		cfg.HomeUser = msg.homeUser
+		if err := cfg.Save(); err != nil {
+			cmds = append(cmds, c.alert.NewAlertCmd("error", err.Error()))
+		}
+		if msg.owner != nil {
+			c.navigator.Pop()
+		}
+		// Retire views with the previous user's credentials before reloading.
+		c.data = plex.LoaderResult{ServerID: cfg.DefaultServer}
+		c.tabManager.activeTabIdx = 0
+		c.returnTabIdx = -1
+		cmds = append(cmds, c.tabManager.setupTabs(c.data, c.theme, ui.SidebarWidth), c.fullReload())
+		return c, tea.Batch(cmds...)
 
 	case reloadedDataMsg:
-		c.data = plex.LoaderResult(msg)
+		if msg.id != c.reloadID {
+			return c, nil
+		}
+		if msg.err != nil {
+			return c, c.alert.NewAlertCmd("error", msg.err.Error())
+		}
+		c.data = msg.data
 		return c, c.tabManager.setupTabs(c.data, c.theme, ui.SidebarWidth)
 	}
 
@@ -369,6 +434,9 @@ func (c *Controller) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (c *Controller) handleSelectMedia(msg ui.SelectMediaMsg) tea.Cmd {
 	server := config.MediaServer(msg.Server)
+	if !server.Shared && server.CacheNamespace() != config.Get().MediaCacheNamespace() {
+		return nil
+	}
 	returnTabIdx := c.tabManager.activeTabIdx
 	if msg.SectionID != "" || server.Shared {
 		return func() tea.Msg {
@@ -407,6 +475,9 @@ func (c *Controller) handleSelectMedia(msg ui.SelectMediaMsg) tea.Cmd {
 }
 
 func (c *Controller) handleJumpToDetail(msg ui.JumpToDetailMsg) tea.Cmd {
+	if msg.Server.ID != "" && !msg.Server.Shared && msg.Server.CacheNamespace() != config.Get().MediaCacheNamespace() {
+		return nil
+	}
 	if msg.Server.Shared {
 		friends := c.tabManager.tabModels[c.tabManager.friendsIdx].(*view.FriendsView)
 		c.returnTabIdx = -1
@@ -443,14 +514,18 @@ func (c *Controller) handleJumpToDetail(msg ui.JumpToDetailMsg) tea.Cmd {
 }
 
 func (c *Controller) handleSwitchUser(msg ui.SwitchUserMsg) tea.Cmd {
+	c.userSwitchID++
+	id, owner := c.userSwitchID, c.navigator.ActiveOverlay()
+	serverID, _, _ := config.Get().GetActiveServer()
+	client, clientErr := plex.NewHomeHomeUserClient()
 	return func() tea.Msg {
-		cfg := config.Get()
-
-		// 1. Get client using home user auth token to perform the switch
-		client, err := plex.NewHomeHomeUserClient()
-		if err != nil {
-			return err
+		result := switchUserSuccessMsg{id: id, owner: owner}
+		if clientErr != nil {
+			result.err = clientErr
+			return result
 		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
 
 		slog.Info("TUI: Switching user", "target", msg.User.Title, "uuid", msg.User.UUID)
 
@@ -463,37 +538,41 @@ func (c *Controller) handleSwitchUser(msg ui.SwitchUserMsg) tea.Cmd {
 			}
 		}
 
-		res, err := client.SDK.HomeUsers.SwitchUser(context.Background(), req)
+		res, err := client.SDK.HomeUsers.SwitchUser(ctx, req)
 		if err != nil {
 			// Check for 403/Forbidden which indicates invalid PIN
 			if strings.Contains(err.Error(), "403") || strings.Contains(strings.ToLower(err.Error()), "pin is required") {
-				return ui.InvalidPinMsg{}
+				result.invalidPin = true
+				return result
 			}
 			slog.Error("TUI: Switch user failed", "error", err)
-			return err
+			result.err = err
+			return result
 		}
 
-		if res.UserPlexAccount == nil {
-			return fmt.Errorf("failed to switch user: no account data returned")
+		if res.UserPlexAccount == nil || res.UserPlexAccount.AuthToken == "" {
+			result.err = fmt.Errorf("failed to switch user: no account data returned")
+			return result
 		}
 
 		// 2. We got an AuthToken. Now we need to use THIS specific AuthToken to get resources
 		slog.Info("TUI: Fetching server-specific token for home user")
-		newClient, err := plex.NewClientWithToken(res.UserPlexAccount.AuthToken)
+		newClient, err := plex.NewAccountClientWithToken(res.UserPlexAccount.AuthToken)
 		if err != nil {
-			return err
+			result.err = err
+			return result
 		}
 
-		resources, err := newClient.SDK.Plex.GetServerResources(context.Background(), operations.GetServerResourcesRequest{
+		resources, err := newClient.SDK.Plex.GetServerResources(ctx, operations.GetServerResourcesRequest{
 			IncludeHTTPS: operations.IncludeHTTPSTrue.ToPointer(),
 		})
 		if err != nil {
 			slog.Error("TUI: Failed to get server resources for home user", "error", err)
-			return err
+			result.err = err
+			return result
 		}
 
-		serverID, _, _ := cfg.GetActiveServer()
-		accessToken := res.UserPlexAccount.AuthToken // Fallback to auth token if server-specific one isn't found
+		accessToken := ""
 		for _, dev := range resources.PlexDevices {
 			if dev.ClientIdentifier == serverID && dev.AccessToken != "" {
 				slog.Info("TUI: Found server-specific token", "server", dev.Name)
@@ -501,51 +580,58 @@ func (c *Controller) handleSwitchUser(msg ui.SwitchUserMsg) tea.Cmd {
 				break
 			}
 		}
+		if accessToken == "" {
+			result.err = fmt.Errorf("selected user does not have access to this server")
+			return result
+		}
 
-		// 3. Save both tokens
-		cfg.HomeUser.AuthToken = res.UserPlexAccount.AuthToken
-		cfg.HomeUser.AccessToken = accessToken
-		cfg.HomeUser.ServerID = serverID
-		_ = cfg.Save()
-
-		slog.Info("TUI: User switched successfully")
-		return switchUserSuccessMsg{}
+		result.homeUser = config.HomeUser{AuthToken: res.UserPlexAccount.AuthToken, AccessToken: accessToken, ServerID: serverID}
+		return result
 	}
 }
 
 func (c *Controller) triggerUserSwitch() tea.Cmd {
+	c.userPickerID++
+	id := c.userPickerID
+	client, clientErr := plex.NewHomeHomeUserClient()
 	return func() tea.Msg {
-		client, err := plex.NewHomeHomeUserClient()
-		if err != nil {
-			return err
+		if clientErr != nil {
+			return usersLoadedMsg{id: id, err: clientErr}
 		}
-		res, err := client.SDK.HomeUsers.GetHomeUsers(context.Background())
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		res, err := client.SDK.HomeUsers.GetHomeUsers(ctx)
 		if err != nil {
-			return err
+			return usersLoadedMsg{id: id, err: err}
 		}
 		if res.Object == nil {
-			return fmt.Errorf("no home data returned")
+			return usersLoadedMsg{id: id, err: fmt.Errorf("no home data returned")}
 		}
-		if len(res.Object.Users) <= 1 {
-			slog.Debug("TUI: 0 or 1 home user, skipping switch")
-			return nil
-		}
-		return ui.UserSelectionMsg{Users: res.Object.Users}
+		return usersLoadedMsg{id: id, users: res.Object.Users}
 	}
 }
 
 func (c *Controller) fullReload() tea.Cmd {
+	c.reloadID++
+	id, server := c.reloadID, config.Get().ServerTarget()
 	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(server.Context(context.Background()), 2*time.Minute)
+		defer cancel()
 		updates := make(chan any, 10)
-		go plex.LoadData(context.Background(), updates)
+		go plex.LoadData(ctx, updates)
 
 		for {
-			msg := <-updates
+			var msg any
+			select {
+			case msg = <-updates:
+			case <-ctx.Done():
+				return reloadedDataMsg{id: id, err: ctx.Err()}
+			}
 			if res, ok := msg.(plex.LoaderResult); ok {
-				return reloadedDataMsg(res)
+				return reloadedDataMsg{id: id, data: res}
 			}
 			if err, ok := msg.(error); ok {
-				return err
+				return reloadedDataMsg{id: id, err: err}
 			}
 		}
 	}

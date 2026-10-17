@@ -16,7 +16,7 @@ type resourceTransport func(*http.Request) (*http.Response, error)
 
 func (f resourceTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
-func TestDiscoveryUsesAccountTokenAndIncludesFriends(t *testing.T) {
+func TestDiscoveryUsesCapturedAccountTokenAndIncludesFriends(t *testing.T) {
 	t.Setenv("PLEXCTL_TOKEN", "")
 	cfg := config.Get()
 	old := *cfg
@@ -24,6 +24,8 @@ func TestDiscoveryUsesAccountTokenAndIncludesFriends(t *testing.T) {
 	t.Cleanup(func() { *cfg = old; http.DefaultTransport = oldTransport })
 	cfg.Token = "account"
 	cfg.HomeUser = config.HomeUser{AuthToken: "profile-account", AccessToken: "server-only"}
+	ctx := cfg.ServerTarget().Context(t.Context())
+	cfg.HomeUser = config.HomeUser{AuthToken: "new-profile", AccessToken: "new-server-token"}
 	fixture := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Plex-Token") != "profile-account" {
 			t.Error("discovery used a server token")
@@ -47,7 +49,7 @@ func TestDiscoveryUsesAccountTokenAndIncludesFriends(t *testing.T) {
 		clone.URL.Scheme, clone.URL.Host = "http", strings.TrimPrefix(fixture.URL, "http://")
 		return oldTransport.RoundTrip(clone)
 	})
-	servers, err := DiscoverServers(context.Background())
+	servers, err := DiscoverServers(ctx)
 	if err != nil || len(servers) != 2 || !servers[0].Owned || servers[1].AccessToken != "shared" {
 		t.Fatalf("discover owned and shared servers: count=%d, error=%v", len(servers), err)
 	}
@@ -58,7 +60,11 @@ func TestConnectSharedServerFallsBackToRelayWithoutAccountToken(t *testing.T) {
 	makeServer := func(name, identity string, status int) *httptest.Server {
 		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			attempts = append(attempts, name)
-			if r.Header.Get("X-Plex-Token") != "resource-token" {
+			wantToken := "resource-token"
+			if r.URL.Path == "/identity" {
+				wantToken = ""
+			}
+			if r.Header.Get("X-Plex-Token") != wantToken {
 				t.Error("wrong shared-server credentials")
 			}
 			w.Header().Set("Content-Type", "application/json")

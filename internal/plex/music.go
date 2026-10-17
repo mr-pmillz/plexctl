@@ -151,7 +151,11 @@ func metadataListing(ctx context.Context, path string, query url.Values) ([]comp
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+path+"?"+query.Encode(), nil)
+		u, err := mediaURL(server, path+"?"+query.Encode())
+		if err != nil {
+			return nil, err
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 		if err != nil {
 			return nil, err
 		}
@@ -159,7 +163,7 @@ func metadataListing(ctx context.Context, path string, query url.Values) ([]comp
 		req.Header.Set("Accept", "application/json")
 		req.Header.Set("X-Plex-Container-Start", strconv.Itoa(start))
 		req.Header.Set("X-Plex-Container-Size", strconv.Itoa(pageSize))
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := mediaHTTPClient().Do(req)
 		if err != nil {
 			return nil, err
 		}

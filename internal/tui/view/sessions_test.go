@@ -55,6 +55,6 @@ func verifyTableNavigation(t *testing.T, model tea.Model, table *ui.Table) {
 
 func TestSessionsTableNavigation(t *testing.T) {
 	tab := NewSessionsTab(ui.PlexctlTheme)
-	tab.Update(navigationRows(len(tab.table.Columns())))
+	tab.Update(DataLoadedMsg{owner: tab, data: navigationRows(len(tab.table.Columns()))})
 	verifyTableNavigation(t, tab, &tab.table)
 }

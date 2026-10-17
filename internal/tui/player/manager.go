@@ -79,7 +79,9 @@ func (pm *PlayerManager) beginRequest(parent context.Context) context.Context {
 	if pm.requestCancel != nil {
 		pm.requestCancel()
 	}
-	ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
+	// This context also owns foreground playback, which may last for hours.
+	// Metadata resolution and startup impose their own bounded deadlines.
+	ctx, cancel := context.WithCancel(parent)
 	pm.requestCancel = cancel
 	select {
 	case <-pm.done:
@@ -158,6 +160,8 @@ func (pm *PlayerManager) playRequest(ctx context.Context, req *PlayRequest, outp
 }
 
 func (pm *PlayerManager) startRequest(ctx context.Context, req *PlayRequest, output config.VideoOutput, startOffset int64) (PlayerStatus, error) {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
 	pm.ioMu.Lock()
 	defer pm.ioMu.Unlock()
 	previous := pm.Status()

@@ -33,6 +33,11 @@ func (c *Config) ServerToken() string {
 	if c.HasServerToken() {
 		return c.Servers[c.DefaultServer].AccessToken
 	}
+	if _, server, ok := c.GetActiveServer(); ok && server.Shared {
+		// A changed account/profile must rediscover its scoped resource token.
+		// Broad account credentials must never be sent to someone else's PMS.
+		return ""
+	}
 	if token := os.Getenv("PLEXCTL_TOKEN"); token != "" {
 		return token
 	}

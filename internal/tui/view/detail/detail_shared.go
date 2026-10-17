@@ -1,16 +1,11 @@
 package detail
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"image"
 	"log/slog"
 	"strings"
 	"time"
-
-	_ "image/jpeg"
-	_ "image/png"
 
 	"github.com/LukeHagar/plexgo/models/components"
 	"github.com/charmbracelet/bubbles/list"
@@ -111,7 +106,7 @@ func fetchPoster(metadata *components.Metadata, width int, servers ...config.Ser
 		slog.Debug("fetchPoster image fetched", "duration", time.Since(start))
 
 		start = time.Now()
-		img, _, err := image.Decode(bytes.NewReader(data))
+		img, err := artwork.Decode(data)
 		if err != nil {
 			slog.Error("fetchPoster decode failed", "error", err)
 			return nil

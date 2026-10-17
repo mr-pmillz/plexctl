@@ -141,7 +141,7 @@ func (p *DevicesPresenter) Rows() [][]string {
 }
 
 func (p *DevicesPresenter) Raw() any {
-	return p.Devices
+	return (&ServerListPresenter{Devices: p.Devices}).Raw()
 }
 
 func (p *DevicesPresenter) SortableColumns() []string {

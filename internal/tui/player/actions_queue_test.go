@@ -150,7 +150,7 @@ func TestResolveAndPlayCancelsObsoleteQueue(t *testing.T) {
 			for {
 				select {
 				case mediaURL := <-loaded:
-					if action == "stop" || mediaURL != partURL(target, "/new.flac") {
+					if action == "stop" || mediaURL != target.URL+"/new.flac?X-Plex-Token=test-token" {
 						t.Errorf("obsolete queue reached mpv: %s", mediaURL)
 					}
 				default:

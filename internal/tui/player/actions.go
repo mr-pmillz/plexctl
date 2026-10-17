@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net/url"
 	"strings"
+	"time"
 
 	"github.com/LukeHagar/plexgo/models/components"
 	tea "github.com/charmbracelet/bubbletea"
@@ -34,6 +34,8 @@ type PlayRequest struct {
 // BuildPlayRequest resolves containers before starting mpv, so an unsuccessful
 // library request cannot interrupt the currently playing item.
 func BuildPlayRequest(ctx context.Context, metadata *components.Metadata, noReport bool) (*PlayRequest, error) {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
 	server := config.ServerFromContext(ctx)
 	if server.URL == "" {
 		return nil, fmt.Errorf("no active server")
@@ -55,7 +57,11 @@ func BuildPlayRequest(ctx context.Context, metadata *components.Metadata, noRepo
 		if part == nil {
 			return nil, fmt.Errorf("no playable media found")
 		}
-		item := PlayItem{URL: partURL(server, part.Key), Title: track.Title}
+		mediaURL, err := plex.MediaURL(server, part.Key)
+		if err != nil {
+			return nil, fmt.Errorf("invalid media path: %w", err)
+		}
+		item := PlayItem{URL: mediaURL, Title: track.Title}
 		if track.RatingKey != nil {
 			item.RatingKey = *track.RatingKey
 		}
@@ -80,20 +86,16 @@ func BuildPlayRequest(ctx context.Context, metadata *components.Metadata, noRepo
 			if stream.LanguageCode != nil {
 				language = *stream.LanguageCode
 			}
+			subtitleURL, err := plex.MediaURL(server, stream.Key)
+			if err != nil {
+				return nil, fmt.Errorf("invalid subtitle path: %w", err)
+			}
 			req.Subtitles = append(req.Subtitles, ExternalSubtitle{
-				URL: partURL(server, stream.Key), Title: stream.DisplayTitle, Language: language,
+				URL: subtitleURL, Title: stream.DisplayTitle, Language: language,
 			})
 		}
 	}
 	return req, nil
-}
-
-func partURL(server config.ServerTarget, key string) string {
-	separator := "?"
-	if strings.Contains(key, "?") {
-		separator = "&"
-	}
-	return server.URL + key + separator + "X-Plex-Token=" + url.QueryEscape(server.Token)
 }
 
 func PlayMedia(parent context.Context, metadata *components.Metadata, noReport bool, output config.VideoOutput, startOffset int64, servers ...config.ServerTarget) tea.Cmd {
@@ -122,7 +124,9 @@ func FetchAndPlay(ratingKey string, output config.VideoOutput, servers ...config
 	pm := GetPlayerManager()
 	ctx := pm.beginRequest(server.Context(context.Background()))
 	return func() tea.Msg {
-		meta, err := plex.GetMetadata(ctx, ratingKey, true)
+		metadataCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		defer cancel()
+		meta, err := plex.GetMetadata(metadataCtx, ratingKey, true)
 		if ctx.Err() == context.Canceled {
 			return nil
 		}
@@ -171,7 +175,9 @@ func FetchAndPlayTrailer(parent context.Context, parentMeta *components.Metadata
 
 		slog.Debug("FetchAndPlayTrailer: Resolved trailer key", "parent", parentMeta.Title, "target", ratingKey)
 
-		meta, err := plex.GetMetadata(ctx, ratingKey, false)
+		metadataCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		defer cancel()
+		meta, err := plex.GetMetadata(metadataCtx, ratingKey, false)
 		if ctx.Err() == context.Canceled {
 			return nil
 		}

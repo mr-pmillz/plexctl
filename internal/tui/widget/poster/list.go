@@ -143,8 +143,9 @@ func (m *PosterList) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "enter":
 			if m.Cursor >= 0 && m.Cursor < len(m.Items) {
+				metadata := m.Items[m.Cursor].Metadata
 				return m, func() tea.Msg {
-					return ItemSelectedMsg{Metadata: m.Items[m.Cursor].Metadata}
+					return ItemSelectedMsg{Metadata: metadata}
 				}
 			}
 		case "left", "h":

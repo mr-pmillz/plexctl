@@ -82,7 +82,9 @@ func InTmux() bool {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
-		tty, err := exec.CommandContext(ctx, "tmux", "display-message", "-p", "-t", pane, "#{pane_tty}").Output()
+		cmd := exec.CommandContext(ctx, "tmux", "display-message", "-p", "-t", pane, "#{pane_tty}")
+		cmd.WaitDelay = time.Second
+		tty, err := cmd.Output()
 		if err == nil {
 			tmuxTerminal.active = sameTerminal(strings.TrimSpace(string(tty)), os.Stdin, os.Stdout)
 		}
@@ -123,7 +125,9 @@ func EnablePassthrough() (func(), error) {
 	run := func(args ...string) ([]byte, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
-		return exec.CommandContext(ctx, "tmux", args...).Output()
+		cmd := exec.CommandContext(ctx, "tmux", args...)
+		cmd.WaitDelay = time.Second
+		return cmd.Output()
 	}
 	old, err := run("show-options", "-p", "-v", "-t", pane, "allow-passthrough")
 	if err != nil {

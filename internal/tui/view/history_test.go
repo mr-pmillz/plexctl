@@ -15,7 +15,7 @@ func TestHistoryTableNavigationPreservesActivation(t *testing.T) {
 	for i := range metadata {
 		metadata[i] = operations.ListPlaybackHistoryMetadata{RatingKey: ui.Ptr(fmt.Sprint(i)), Type: ui.Ptr("movie")}
 	}
-	tab.Update(historyResult{rows: rows, metadata: metadata})
+	tab.Update(DataLoadedMsg{owner: tab, data: historyResult{rows: rows, metadata: metadata}})
 	verifyTableNavigation(t, tab, &tab.table)
 	_, cmd := tab.Update(ui.KeyPress("enter"))
 	if cmd == nil {

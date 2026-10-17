@@ -18,6 +18,10 @@ type RunnerFunc func(ctx context.Context, client *plex.Client, cmd *cobra.Comman
 // RunWithClient wraps a cobra command RunE function to inject a configured Plex client.
 // This is for commands that only need a token (like login or discovery).
 func RunWithClient(runner RunnerFunc) func(cmd *cobra.Command, args []string) error {
+	return runWithClient(plex.NewAccountClient, runner)
+}
+
+func runWithClient(newClient func() (*plex.Client, error), runner RunnerFunc) func(cmd *cobra.Command, args []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		opts := &PlexCtlOptions{
 			OutputFormat: viper.GetString("output"),
@@ -28,7 +32,7 @@ func RunWithClient(runner RunnerFunc) func(cmd *cobra.Command, args []string) er
 			All:          viper.GetBool("all"),
 		}
 
-		client, err := plex.NewClient()
+		client, err := newClient()
 		if err != nil {
 			return err
 		}
@@ -39,7 +43,7 @@ func RunWithClient(runner RunnerFunc) func(cmd *cobra.Command, args []string) er
 // RunWithServer wraps RunWithClient but ensures a default server is selected first.
 // This is for commands that interact with specific media or server library sections.
 func RunWithServer(runner RunnerFunc) func(cmd *cobra.Command, args []string) error {
-	return RunWithClient(runner)
+	return runWithClient(plex.NewClient, runner)
 }
 
 // EnsureActiveServer checks if a server is configured and triggers discovery if not

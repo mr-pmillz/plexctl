@@ -1,15 +1,10 @@
 package poster
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"image"
 	"strings"
 	"time"
-
-	_ "image/jpeg"
-	_ "image/png"
 
 	"github.com/LukeHagar/plexgo/models/components"
 	tea "github.com/charmbracelet/bubbletea"
@@ -82,7 +77,7 @@ func FetchPoster(listID int, index int, metadata components.Metadata, servers ..
 			return result
 		}
 
-		img, _, err := image.Decode(bytes.NewReader(data))
+		img, err := artwork.Decode(data)
 		if err != nil {
 			return result
 		}
@@ -100,10 +95,7 @@ func FetchPoster(listID int, index int, metadata components.Metadata, servers ..
 func RenderPosterItem(item *PosterItem, isSelected bool, active bool, theme tint.Tint) string {
 	content := item.Poster
 	if item.Loading || content == "" {
-		title := item.Metadata.Title
-		if len(title) > ui.PosterWidth-2 {
-			title = title[:ui.PosterWidth-5] + "..."
-		}
+		title := ui.Ellipsis(item.Metadata.Title, ui.PosterWidth-2)
 		content = "\n\n" + title
 	}
 
@@ -180,7 +172,7 @@ func GetDisplayTitle(meta *components.Metadata) string {
 
 func RenderMiniWatched(meta *components.Metadata, theme tint.Tint) string {
 	if meta.ViewOffset != nil && *meta.ViewOffset > 0 && meta.Duration != nil && *meta.Duration > 0 {
-		percent := float64(*meta.ViewOffset) / float64(*meta.Duration)
+		percent := min(1.0, float64(*meta.ViewOffset)/float64(*meta.Duration))
 		width := ui.PosterWidth - 2
 		filled := int(float64(width) * percent)
 		if filled < 1 && percent > 0 {

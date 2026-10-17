@@ -2,6 +2,7 @@ package view
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/LukeHagar/plexgo/models/components"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -20,6 +21,8 @@ type HomeView struct {
 	activeList int
 	theme      tint.Tint
 	loading    bool
+	err        error
+	request    viewRequest
 
 	details  detail.DetailManager
 	viewport viewport.Model
@@ -27,13 +30,12 @@ type HomeView struct {
 
 func NewHomeView(theme tint.Tint) *HomeView {
 	return &HomeView{
+		request:  newViewRequest(),
 		theme:    theme,
 		loading:  true,
 		viewport: viewport.New(0, 0),
 	}
 }
-
-type homeHubsMsg []components.Hub
 
 func (v *HomeView) CanJumpLetters() bool {
 	target, ok := v.details.View.(ui.LetterJumper)
@@ -55,7 +57,7 @@ func (v *HomeView) JumpToLetter(letter string) tea.Cmd {
 }
 
 func (v *HomeView) Init() tea.Cmd {
-	return v.fetchHubs
+	return v.Refresh()
 }
 
 func (v *HomeView) Refresh() tea.Cmd {
@@ -65,24 +67,23 @@ func (v *HomeView) Refresh() tea.Cmd {
 		}
 	}
 	v.loading = true
-	return v.fetchHubs
-}
-
-func (v *HomeView) fetchHubs() tea.Msg {
-	hubs, err := plex.GetHomeHubs(context.Background())
-	if err != nil {
-		return err
-	}
-	return homeHubsMsg(hubs)
+	v.err = nil
+	return v.request.start(v, func(ctx context.Context) (any, error) {
+		return plex.GetHomeHubs(ctx)
+	})
 }
 
 func (v *HomeView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if result, ok := msg.(DataLoadedMsg); ok && !v.request.accepts(v, result) {
+		return v, nil
+	}
 	if posterMsg, ok := msg.(poster.PosterLoadedMsg); ok && v.details.Active() {
 		for _, list := range v.lists {
 			list.Update(posterMsg)
 		}
 	}
-	if v.details.Active() {
+	_, homeResult := msg.(DataLoadedMsg)
+	if v.details.Active() && !homeResult {
 		cmd, handled := v.details.Update(msg)
 		if handled {
 			return v, cmd
@@ -127,9 +128,13 @@ func (v *HomeView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			l.Theme = msg.Theme
 		}
 		shouldRedraw = true
-	case homeHubsMsg:
+	case DataLoadedMsg:
 		v.loading = false
-		v.hubs = msg
+		v.err = msg.err
+		if msg.err != nil {
+			return v, nil
+		}
+		v.hubs = msg.data.([]components.Hub)
 
 		var newLists []*poster.PosterList
 		for i, hub := range v.hubs {
@@ -152,7 +157,7 @@ func (v *HomeView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					cmds = append(cmds, existing.SetItems(hub.Metadata))
 					newLists = append(newLists, existing)
 				} else {
-					l := poster.NewPosterList(i, title, hub.Metadata, v.theme)
+					l := poster.NewPosterList(i, title, hub.Metadata, v.theme, v.request.server)
 					newLists = append(newLists, l)
 					cmds = append(cmds, l.Init())
 				}
@@ -184,13 +189,13 @@ func (v *HomeView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var dv tea.Model
 		switch meta.Type {
 		case "show":
-			dv = detail.NewShowDetailView(ratingKey, v.theme)
+			dv = detail.NewShowDetailView(ratingKey, v.theme, v.request.server)
 		case "episode":
-			dv = detail.NewEpisodeDetailView(ratingKey, v.theme)
+			dv = detail.NewEpisodeDetailView(ratingKey, v.theme, v.request.server)
 		case "artist", "album", "track":
-			dv = detail.NewMusicDetailView(ratingKey, v.theme)
+			dv = detail.NewMusicDetailView(ratingKey, v.theme, v.request.server)
 		default:
-			dv = detail.NewMovieDetailView(ratingKey, v.theme)
+			dv = detail.NewMovieDetailView(ratingKey, v.theme, v.request.server)
 		}
 
 		layout := ui.GetLayout()
@@ -292,6 +297,9 @@ func (v *HomeView) View() string {
 	}
 	if v.loading {
 		return "\n  ⌛ Loading Dashboard..."
+	}
+	if v.err != nil {
+		return fmt.Sprintf("Unable to load dashboard: %v\n[r] Retry", v.err)
 	}
 	if len(v.lists) == 0 {
 		return "\n  No promoted hubs found."

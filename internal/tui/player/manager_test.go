@@ -1,11 +1,42 @@
 package player
 
 import (
+	"context"
 	"testing"
+	"testing/synctest"
+	"time"
 
+	"github.com/LukeHagar/plexgo/models/components"
 	"github.com/LukeHagar/plexgo/models/operations"
 	"github.com/ygelfand/plexctl/internal/config"
 )
+
+func TestPlaybackRequestOutlivesMetadataDeadline(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		pm := newPlayerManager("")
+		defer pm.Close()
+		server := config.ServerTarget{URL: "https://plex.invalid", Token: "test-token"}
+		ctx := pm.beginRequest(server.Context(context.Background()))
+		metadata := &components.Metadata{Type: "movie",
+			Media: []components.Media{{Part: []components.Part{{Key: "/video"}}}}}
+		if _, err := BuildPlayRequest(ctx, metadata, true); err != nil {
+			t.Fatal(err)
+		}
+		// Foreground mpv inherits this context after metadata resolution.
+		time.Sleep(3 * time.Hour)
+		if err := ctx.Err(); err != nil {
+			t.Fatalf("playback expired without a stop or new selection: %v", err)
+		}
+		next := pm.beginRequest(context.Background())
+		if ctx.Err() != context.Canceled {
+			t.Fatal("a new selection did not cancel foreground playback")
+		}
+		pm.Close()
+		if next.Err() != context.Canceled {
+			t.Fatal("closing the manager did not cancel foreground playback")
+		}
+	})
+}
 
 func TestQueueEventsReportEveryTrack(t *testing.T) {
 	server := config.ServerTarget{ID: "friend", URL: "https://friend.invalid", Token: "private"}

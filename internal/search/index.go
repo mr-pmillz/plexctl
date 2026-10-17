@@ -38,6 +38,9 @@ type SearchIndex struct {
 	Entries     []IndexEntry `json:"entries"`
 	mu          sync.RWMutex
 	reindexMu   sync.Mutex
+	scopeOnce   sync.Once
+	server      config.ServerTarget
+	cacheDir    string
 }
 
 // SearchableText includes music context, so an album or track can also be found
@@ -73,9 +76,11 @@ var (
 func GetIndex() *SearchIndex {
 	indexMu.Lock()
 	defer indexMu.Unlock()
-	namespace := config.Get().MediaCacheNamespace()
-	if indexInstance == nil || indexNamespace != namespace {
+	cfg := config.Get()
+	namespace := cfg.MediaCacheNamespace()
+	if indexInstance == nil || indexNamespace != namespace || indexInstance.cacheDir != cfg.CacheDir {
 		indexInstance = &SearchIndex{}
+		indexInstance.bindScope()
 		indexNamespace = namespace
 		_ = indexInstance.Load()
 	}
@@ -83,13 +88,13 @@ func GetIndex() *SearchIndex {
 }
 
 func (idx *SearchIndex) Load() error {
-	cfg := config.Get()
-	cm, err := cache.Get(cfg.CacheDir)
+	idx.bindScope()
+	cm, err := cache.Get(idx.cacheDir)
 	if err != nil {
 		return err
 	}
 
-	key := fmt.Sprintf("%s/search_index", cfg.MediaCacheNamespace())
+	key := fmt.Sprintf("%s/search_index", idx.server.CacheNamespace())
 
 	var data SearchIndex
 	if err := cm.Get(key, &data); err == nil {
@@ -103,17 +108,26 @@ func (idx *SearchIndex) Load() error {
 }
 
 func (idx *SearchIndex) Save() error {
-	cfg := config.Get()
-	cm, err := cache.Get(cfg.CacheDir)
+	idx.bindScope()
+	cm, err := cache.Get(idx.cacheDir)
 	if err != nil {
 		return err
 	}
 
-	key := fmt.Sprintf("%s/search_index", cfg.MediaCacheNamespace())
+	key := fmt.Sprintf("%s/search_index", idx.server.CacheNamespace())
 
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 	return cm.Set(key, idx, 0)
+}
+
+// An index retains the identity it was created for, including when a Home
+// profile switch happens while a background reindex is still running.
+func (idx *SearchIndex) bindScope() {
+	idx.scopeOnce.Do(func() {
+		cfg := config.Get()
+		idx.server, idx.cacheDir = cfg.ServerTarget(), cfg.CacheDir
+	})
 }
 
 type IndexProgress struct {
@@ -123,9 +137,11 @@ type IndexProgress struct {
 }
 
 func (idx *SearchIndex) Reindex(ctx context.Context, progress chan<- IndexProgress) error {
+	idx.bindScope()
 	idx.reindexMu.Lock()
 	defer idx.reindexMu.Unlock()
-	client, err := plex.NewClient()
+	ctx = idx.server.Context(ctx)
+	client, err := plex.NewClientForContext(ctx)
 	if err != nil {
 		return err
 	}
@@ -196,7 +212,7 @@ func (idx *SearchIndex) indexLibrary(ctx context.Context, client *plex.Client, s
 		}
 
 		if res.MediaContainerWithMetadata == nil || res.MediaContainerWithMetadata.MediaContainer == nil {
-			break
+			return nil, fmt.Errorf("missing library metadata")
 		}
 
 		mc := res.MediaContainerWithMetadata.MediaContainer
@@ -224,8 +240,14 @@ func (idx *SearchIndex) indexLibrary(ctx context.Context, client *plex.Client, s
 			music = music || meta.Type == "artist"
 
 			if meta.Type == "show" && meta.RatingKey != nil {
-				seasons, _ := plex.GetChildren(ctx, *meta.RatingKey)
+				seasons, err := plex.GetChildren(ctx, *meta.RatingKey)
+				if err != nil {
+					return nil, err
+				}
 				for _, season := range seasons {
+					if season.RatingKey == nil || *season.RatingKey == "" {
+						return nil, fmt.Errorf("season in show %s has no rating key", *meta.RatingKey)
+					}
 					entries = append(entries, IndexEntry{
 						RatingKey: ui.PtrToString(season.RatingKey),
 						Title:     fmt.Sprintf("%s - %s", meta.Title, season.Title),
@@ -234,7 +256,10 @@ func (idx *SearchIndex) indexLibrary(ctx context.Context, client *plex.Client, s
 						Library:   libTitle,
 					})
 
-					episodes, _ := plex.GetChildren(ctx, *season.RatingKey)
+					episodes, err := plex.GetChildren(ctx, *season.RatingKey)
+					if err != nil {
+						return nil, err
+					}
 					for _, ep := range episodes {
 						epEntry := IndexEntry{
 							RatingKey: ui.PtrToString(ep.RatingKey),

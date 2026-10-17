@@ -34,7 +34,9 @@ func NewPaneZoom() (*PaneZoom, error) {
 	return newPaneZoom(os.Getenv("TMUX_PANE"), func(args ...string) ([]byte, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
-		return exec.CommandContext(ctx, "tmux", args...).Output()
+		cmd := exec.CommandContext(ctx, "tmux", args...)
+		cmd.WaitDelay = time.Second
+		return cmd.Output()
 	})
 }
 

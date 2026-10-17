@@ -36,10 +36,13 @@ var historyCmd = &cobra.Command{
 		}
 
 		userMap := make(map[int64]string)
-		uRes, err := client.SDK.Users.GetUsers(ctx, operations.GetUsersRequest{})
-		if err == nil && uRes.Object != nil && uRes.Object.MediaContainer != nil {
-			for _, u := range uRes.Object.MediaContainer.User {
-				userMap[u.ID] = u.Title
+		account, accountErr := plex.NewAccountClient()
+		if accountErr == nil {
+			uRes, err := account.SDK.Users.GetUsers(ctx, operations.GetUsersRequest{})
+			if err == nil && uRes.Object != nil && uRes.Object.MediaContainer != nil {
+				for _, u := range uRes.Object.MediaContainer.User {
+					userMap[u.ID] = u.Title
+				}
 			}
 		}
 
@@ -54,10 +57,12 @@ var historyCmd = &cobra.Command{
 		}
 
 		deviceMap := make(map[string]string)
-		dRes, err := client.SDK.Plex.GetServerResources(ctx, operations.GetServerResourcesRequest{})
-		if err == nil {
-			for _, d := range dRes.PlexDevices {
-				deviceMap[d.ClientIdentifier] = d.Name
+		if accountErr == nil {
+			dRes, err := account.SDK.Plex.GetServerResources(ctx, operations.GetServerResourcesRequest{})
+			if err == nil {
+				for _, d := range dRes.PlexDevices {
+					deviceMap[d.ClientIdentifier] = d.Name
+				}
 			}
 		}
 

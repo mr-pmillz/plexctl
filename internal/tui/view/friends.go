@@ -64,8 +64,9 @@ func (v *FriendsView) Refresh() tea.Cmd {
 	v.requestID = friendsRequestID.Add(1)
 	v.loading, v.err = true, nil
 	id := v.requestID
+	server := config.Get().ServerTarget()
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		ctx, cancel := context.WithTimeout(server.Context(context.Background()), 15*time.Second)
 		defer cancel()
 		servers, err := plex.DiscoverServers(ctx)
 		var shared []components.PlexDevice

@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	neturl "net/url"
-	"strings"
 	"time"
 
 	"github.com/LukeHagar/plexgo/models/components"
@@ -96,7 +95,7 @@ func GetMetadata(ctx context.Context, ratingKey string, force bool) (*components
 		return nil, err
 	}
 
-	if len(body.MediaContainer.Metadata) == 0 {
+	if body.MediaContainer == nil || len(body.MediaContainer.Metadata) == 0 {
 		return nil, fmt.Errorf("metadata empty")
 	}
 
@@ -131,17 +130,16 @@ func GetImage(ctx context.Context, path string) ([]byte, error) {
 		return data, nil
 	}
 
-	url := fmt.Sprintf("%s%s", server.URL, path)
-	separator := "?"
-	if strings.Contains(url, "?") {
-		separator = "&"
-	}
-	url = fmt.Sprintf("%s%sX-Plex-Token=%s", url, separator, neturl.QueryEscape(server.Token))
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	u, err := mediaURL(server, path)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("X-Plex-Token", server.Token)
+	resp, err := mediaHTTPClient().Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -155,9 +153,13 @@ func GetImage(ctx context.Context, path string) ([]byte, error) {
 		return nil, fmt.Errorf("failed to fetch image: %s", resp.Status)
 	}
 
-	data, err = io.ReadAll(resp.Body)
+	const maxImageBytes = 16 << 20
+	data, err = io.ReadAll(io.LimitReader(resp.Body, maxImageBytes+1))
 	if err != nil {
 		return nil, err
+	}
+	if len(data) > maxImageBytes {
+		return nil, fmt.Errorf("plex image exceeds the 16 MiB limit")
 	}
 
 	_ = cm.Set(cacheKey, data, MediaCacheTTL)

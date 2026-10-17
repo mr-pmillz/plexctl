@@ -53,9 +53,10 @@ func (v *SearchStatusView) Refresh() tea.Cmd {
 	v.progress = search.IndexProgress{}
 	v.progressChan = make(chan search.IndexProgress, 100)
 	progress := v.progressChan
+	index := search.GetIndex()
 	return tea.Batch(v.spinner.Tick, func() tea.Msg {
 		defer close(progress)
-		err := search.GetIndex().Reindex(context.Background(), progress)
+		err := index.Reindex(context.Background(), progress)
 		return SearchIndexFinishedMsg{owner: v, err: err}
 	}, v.waitForProgress())
 }

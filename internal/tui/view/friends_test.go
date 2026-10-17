@@ -26,7 +26,11 @@ func TestFriendsBrowseSearchAndBackKeepOwnedServer(t *testing.T) {
 	cfg.DefaultViewMode = config.ViewModeList
 	ui.GetLayout().Update(120, 40, false)
 	friend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-Plex-Token") != "friend-token" {
+		wantToken := "friend-token"
+		if r.URL.Path == "/identity" {
+			wantToken = ""
+		}
+		if r.Header.Get("X-Plex-Token") != wantToken {
 			t.Error("used owned credentials for a friend")
 			http.Error(w, "denied", http.StatusUnauthorized)
 			return

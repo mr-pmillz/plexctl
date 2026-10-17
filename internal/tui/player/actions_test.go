@@ -5,12 +5,45 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/LukeHagar/plexgo/models/components"
 	"github.com/LukeHagar/plexgo/models/operations"
 	"github.com/ygelfand/plexctl/internal/config"
 	"github.com/ygelfand/plexctl/internal/ui"
 )
+
+func TestBuildPlayRequestRejectsUntrustedPaths(t *testing.T) {
+	server := config.ServerTarget{URL: "https://plex.invalid", Token: "private-token"}
+	for _, tt := range []struct {
+		name     string
+		path     string
+		subtitle bool
+	}{
+		{name: "userinfo authority", path: "@attacker.invalid/video"},
+		{name: "absolute URL", path: "https://attacker.invalid/video"},
+		{name: "network path", path: "//attacker.invalid/video"},
+		{name: "fragment", path: "/video#fragment"},
+		{name: "subtitle authority", path: "@attacker.invalid/subtitle", subtitle: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			part := components.Part{Key: tt.path}
+			if tt.subtitle {
+				part.Key = "/video"
+				part.Stream = []components.Stream{{StreamType: components.StreamTypeSubtitle, Key: tt.path}}
+			}
+			metadata := &components.Metadata{Type: "movie", Media: []components.Media{{Part: []components.Part{part}}}}
+			req, err := BuildPlayRequest(server.Context(t.Context()), metadata, true)
+			if err == nil || req != nil {
+				t.Fatalf("untrusted media path reached playback: request=%+v, error=%v", req, err)
+			}
+			if strings.Contains(err.Error(), server.Token) {
+				t.Fatal("path error exposed the server token")
+			}
+		})
+	}
+}
 
 func TestSharedResumeAndProgressKeepOriginatingServer(t *testing.T) {
 	var reports int

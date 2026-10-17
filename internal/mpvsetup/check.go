@@ -77,7 +77,10 @@ func installed(ctx context.Context) (Status, error) {
 func inspect(ctx context.Context, path string) (Status, error) {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, path, "--no-config", "--version").Output()
+	cmd := exec.CommandContext(ctx, path, "--no-config", "--version")
+	// Wrappers can leave descendants holding stdout after the probe exits.
+	cmd.WaitDelay = time.Second
+	out, err := cmd.Output()
 	if err != nil {
 		return Status{}, fmt.Errorf("check mpv at %s: %w", path, err)
 	}

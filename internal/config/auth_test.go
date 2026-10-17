@@ -33,7 +33,7 @@ func TestResourceTokensStayWithTheirServerAndAccount(t *testing.T) {
 	}
 	namespace := cfg.MediaCacheNamespace()
 	cfg.HomeUser.AuthToken = "different-profile"
-	if cfg.HasServerToken() || cfg.ServerToken() != "different-profile" || cfg.MediaCacheNamespace() == namespace {
+	if cfg.HasServerToken() || cfg.ServerToken() != "" || cfg.MediaCacheNamespace() == namespace {
 		t.Fatal("a different Home profile reused the previous user's access or cache")
 	}
 	t.Setenv("PLEXCTL_TOKEN", "account")
@@ -41,7 +41,22 @@ func TestResourceTokensStayWithTheirServerAndAccount(t *testing.T) {
 		t.Fatal("resource token for the environment account was not selected")
 	}
 	t.Setenv("PLEXCTL_TOKEN", "different-account")
-	if cfg.ServerToken() != "different-account" {
+	if cfg.ServerToken() != "" {
 		t.Fatal("resource token escaped its account scope")
+	}
+}
+
+func TestSharedServerNeverFallsBackToAccountCredentials(t *testing.T) {
+	t.Setenv("PLEXCTL_TOKEN", "environment-account")
+	cfg := Config{
+		Token: "account", HomeUser: HomeUser{AuthToken: "home-account", AccessToken: "legacy-server-token"},
+		DefaultServer: "friend", Servers: map[string]Server{"friend": {Shared: true}},
+	}
+	if got := cfg.ServerTarget().Token; got != "" {
+		t.Fatal("shared server received fallback credentials")
+	}
+	cfg.Servers["friend"] = Server{Shared: true, AccessToken: "scoped-resource", TokenSource: cfg.TokenSource()}
+	if got := cfg.ServerTarget().Token; got != "scoped-resource" {
+		t.Fatal("shared server did not receive its matching resource token")
 	}
 }

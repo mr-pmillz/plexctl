@@ -18,7 +18,7 @@ import (
 
 // DiscoverServers includes servers shared with the active Plex account/profile.
 func DiscoverServers(ctx context.Context) ([]components.PlexDevice, error) {
-	client, err := NewAccountClient()
+	client, err := NewAccountClientWithToken(config.ServerFromContext(ctx).AccountToken)
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +70,7 @@ func ConnectServer(ctx context.Context, device components.PlexDevice) (config.Se
 	client := &http.Client{Timeout: 3 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	for _, conn := range connections {
 		u, err := url.Parse(conn.URI)
-		if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" ||
+		if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" ||
 			(u.Scheme != "https" && u.Scheme != "http") || (device.HTTPSRequired && u.Scheme != "https") {
 			continue
 		}
@@ -108,7 +108,11 @@ func probeServer(ctx context.Context, client *http.Client, target config.ServerT
 			return err
 		}
 		req.Header.Set("Accept", "application/json")
-		req.Header.Set("X-Plex-Token", target.Token)
+		// The identity endpoint is public. First verify that an advertised
+		// private address belongs to this server, then send its access token.
+		if path != "/identity" {
+			req.Header.Set("X-Plex-Token", target.Token)
+		}
 		req.Header.Set("X-Plex-Client-Identifier", config.ClientIdentifier())
 		resp, err := client.Do(req)
 		if err != nil {

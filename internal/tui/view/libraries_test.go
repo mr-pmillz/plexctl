@@ -8,6 +8,6 @@ import (
 
 func TestLibrariesTableNavigation(t *testing.T) {
 	tab := NewLibrariesTab(ui.PlexctlTheme)
-	tab.Update(navigationRows(len(tab.table.Columns())))
+	tab.Update(DataLoadedMsg{owner: tab, data: navigationRows(len(tab.table.Columns()))})
 	verifyTableNavigation(t, tab, &tab.table)
 }

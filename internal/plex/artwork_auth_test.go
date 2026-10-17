@@ -12,7 +12,7 @@ import (
 func TestArtworkUsesHomeUserToken(t *testing.T) {
 	t.Setenv("PLEXCTL_TOKEN", "")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("X-Plex-Token") != "home+user&token" {
+		if r.Header.Get("X-Plex-Token") != "home+user&token" || r.URL.Query().Has("X-Plex-Token") {
 			http.Error(w, "wrong credentials", http.StatusUnauthorized)
 			return
 		}

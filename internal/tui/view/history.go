@@ -23,6 +23,9 @@ type HistoryTab struct {
 	metadata  []operations.ListPlaybackHistoryMetadata
 	dayCursor time.Time
 	isLoading bool
+	hasMore   bool
+	request   viewRequest
+	err       error
 }
 
 func NewHistoryTab(theme tint.Tint) *HistoryTab {
@@ -38,20 +41,24 @@ func NewHistoryTab(theme tint.Tint) *HistoryTab {
 	return &HistoryTab{
 		table:     ui.NewTable(columns, theme),
 		dayCursor: time.Now(),
+		hasMore:   true,
+		request:   newViewRequest(),
 	}
 }
 
 func (t *HistoryTab) Init() tea.Cmd {
-	t.isLoading = true
-	return t.fetchNextPage
+	if t.isLoading || len(t.metadata) > 0 || !t.hasMore {
+		return nil
+	}
+	return t.fetchNextPage()
 }
 
 func (t *HistoryTab) Refresh() tea.Cmd {
 	t.dayCursor = time.Now()
 	t.metadata = nil
 	t.table.SetRows(nil)
-	t.isLoading = true
-	return t.fetchNextPage
+	t.hasMore, t.err = true, nil
+	return t.fetchNextPage()
 }
 
 func (t *HistoryTab) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -67,17 +74,26 @@ func (t *HistoryTab) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		t.table.SetWidth(t.width)
 	case ui.ThemeChangedMsg:
 		ui.UpdateTableTheme(&t.table, t.width, t.height)
-	case historyResult:
+	case DataLoadedMsg:
+		if !t.request.accepts(t, msg) {
+			return t, nil
+		}
 		t.isLoading = false
-		t.metadata = append(t.metadata, msg.metadata...)
-		newRows := append(t.table.Rows(), msg.rows...)
+		t.err = msg.err
+		if msg.err != nil {
+			return t, nil
+		}
+		result := msg.data.(historyResult)
+		t.dayCursor = result.nextDay
+		t.hasMore = len(result.rows) > 0
+		t.metadata = append(t.metadata, result.metadata...)
+		newRows := append(t.table.Rows(), result.rows...)
 		t.table.SetRows(newRows)
 
 		// If we still don't have enough rows to fill the table height, get more
 		tableHeight := ui.GetTableHeight(t.height)
-		if len(newRows) < tableHeight && len(msg.rows) > 0 && t.height > 0 {
-			t.isLoading = true
-			return t, t.fetchNextPage
+		if len(newRows) < tableHeight && t.hasMore && t.height > 0 {
+			return t, t.fetchNextPage()
 		}
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -92,6 +108,7 @@ func (t *HistoryTab) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					return t, func() tea.Msg {
 						return ui.SelectMediaMsg{
+							Server:    t.request.server,
 							RatingKey: *meta.RatingKey,
 							Type:      *meta.Type,
 							SectionID: sectionID,
@@ -107,9 +124,8 @@ func (t *HistoryTab) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	t.table, cmd = t.table.Update(msg)
 
 	// Lazy load
-	if !t.isLoading && t.table.Cursor() > len(t.table.Rows())-10 && len(t.table.Rows()) > 0 {
-		t.isLoading = true
-		return t, tea.Batch(cmd, t.fetchNextPage)
+	if !t.isLoading && t.hasMore && t.err == nil && t.table.Cursor() > len(t.table.Rows())-10 && len(t.table.Rows()) > 0 {
+		return t, tea.Batch(cmd, t.fetchNextPage())
 	}
 
 	return t, cmd
@@ -118,33 +134,43 @@ func (t *HistoryTab) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 type historyResult struct {
 	rows     []table.Row
 	metadata []operations.ListPlaybackHistoryMetadata
+	nextDay  time.Time
 }
 
-func (t *HistoryTab) fetchNextPage() tea.Msg {
-	store, err := plex.GetStore()
-	if err != nil {
-		return err
-	}
+func (t *HistoryTab) fetchNextPage() tea.Cmd {
+	t.isLoading = true
+	cursor := t.dayCursor
+	return t.request.start(t, func(ctx context.Context) (any, error) {
+		return fetchHistory(ctx, cursor)
+	})
+}
 
-	ctx := context.Background()
+func fetchHistory(ctx context.Context, cursor time.Time) (any, error) {
+	store, err := plex.GetStoreForContext(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	// Try fetching days until we find data or hit a limit (e.g. 30 empty days)
 	var allRows []table.Row
 	var allMeta []operations.ListPlaybackHistoryMetadata
 
 	for range 30 {
-		gte := t.dayCursor.Add(-24 * time.Hour)
-		lte := t.dayCursor
+		gte := cursor.Add(-24 * time.Hour)
+		lte := cursor
 
 		res, err := store.ListPlaybackHistory(ctx, operations.ListPlaybackHistoryRequest{
 			Sort:        []string{"viewedAt:desc"},
 			ViewedAtGte: ui.Ptr(gte.Unix()),
-			ViewedAtLte: ui.Ptr(lte.Unix()),
+			ViewedAtLte: ui.Ptr(lte.Unix() - 1),
 		})
 
-		t.dayCursor = gte
+		if err != nil {
+			return nil, err
+		}
+		cursor = gte
 
-		if err == nil && res.Object != nil && res.Object.MediaContainer != nil {
+		if res.Object != nil && res.Object.MediaContainer != nil {
 			userMap := make(map[int64]string)
 			libMap := make(map[string]string)
 			deviceMap := make(map[string]string)
@@ -178,10 +204,14 @@ func (t *HistoryTab) fetchNextPage() tea.Msg {
 	return historyResult{
 		rows:     allRows,
 		metadata: allMeta,
-	}
+		nextDay:  cursor,
+	}, nil
 }
 
 func (t *HistoryTab) View() string {
+	if t.err != nil {
+		return fmt.Sprintf("Unable to load history: %v\n[r] Retry", t.err)
+	}
 	if len(t.table.Rows()) == 0 {
 		return lipgloss.NewStyle().
 			Padding(2).

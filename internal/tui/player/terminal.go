@@ -179,6 +179,9 @@ func (p *terminalPlayback) run() error {
 	}
 	ctx, cancel := context.WithCancel(request)
 	defer cancel()
+	startup, stopStartup := context.WithTimeout(ctx, 2*time.Minute)
+	defer stopStartup()
+	startupDone := startup.Done()
 	for _, stream := range []any{p.stdin, p.stdout} {
 		if f, ok := stream.(interface{ Fd() uintptr }); ok && !term.IsTerminal(int(f.Fd())) {
 			return fmt.Errorf("terminal video requires an interactive terminal")
@@ -189,7 +192,7 @@ func (p *terminalPlayback) run() error {
 		p.sharedMemory = caps.KittySharedMemory
 		if p.preference != config.VideoWindow {
 			var err error
-			p.mpv, p.output, err = terminalOutput(ctx, p.preference, os.Getenv)
+			p.mpv, p.output, err = terminalOutput(startup, p.preference, os.Getenv)
 			if err != nil {
 				return err
 			}
@@ -322,7 +325,7 @@ func (p *terminalPlayback) run() error {
 		}
 	}()
 
-	conn, err := connectTerminal(ctx, socket, done)
+	conn, err := connectTerminal(startup, socket, done)
 	if err != nil {
 		return err
 	}
@@ -373,7 +376,7 @@ func (p *terminalPlayback) run() error {
 		}
 		// Drain acknowledgements while building large artist queues. Otherwise
 		// a full event channel can block mpv's IPC output and our next write.
-		if err := awaitQueueLoad(ctx, events, &pending); err != nil {
+		if err := awaitQueueLoad(startup, events, &pending); err != nil {
 			return err
 		}
 	}
@@ -482,6 +485,9 @@ func (p *terminalPlayback) run() error {
 				setTrack(&p.status, item)
 			}
 		case "file-loaded":
+			// The startup deadline must not limit the running video's lifetime.
+			startupDone = nil
+			stopStartup()
 			p.started = true
 			loaded = true
 			p.status.Play()
@@ -528,6 +534,8 @@ func (p *terminalPlayback) run() error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-startupDone:
+			return fmt.Errorf("terminal player did not finish starting playback: %w", startup.Err())
 		case data, ok := <-keys:
 			if !ok {
 				keys = nil

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -120,9 +121,12 @@ func initConfig() {
 	// Explicitly bind env vars that don't have corresponding flags
 	cobra.CheckErr(viper.BindEnv("token"))
 
-	if err := viper.ReadInConfig(); err == nil {
-		cfg.ConfigPath = viper.ConfigFileUsed()
+	path, err := readConfigFile(viper.GetViper(), cfgFile != "")
+	if err != nil {
+		ui.RenderError(err)
+		os.Exit(1)
 	}
+	cfg.ConfigPath = path
 
 	// Unmarshal the loaded config into our struct
 	if err := viper.Unmarshal(cfg); err != nil {
@@ -157,4 +161,15 @@ func initConfig() {
 
 	// Sync back to viper for parts that still use it
 	viper.Set("output", cfg.OutputFormat)
+}
+
+func readConfigFile(v *viper.Viper, explicit bool) (string, error) {
+	if err := v.ReadInConfig(); err != nil {
+		var missing viper.ConfigFileNotFoundError
+		if !explicit && errors.As(err, &missing) {
+			return "", nil
+		}
+		return "", fmt.Errorf("read configuration: %w", err)
+	}
+	return v.ConfigFileUsed(), nil
 }
