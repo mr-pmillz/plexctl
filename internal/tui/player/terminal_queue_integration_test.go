@@ -13,9 +13,55 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/LukeHagar/plexgo/models/operations"
 	"github.com/ygelfand/plexctl/internal/config"
 )
+
+func TestTerminalPlaybackStopsWhenRequestIsCanceled(t *testing.T) {
+	mpv, err := exec.LookPath("mpv")
+	if err != nil {
+		t.Skip("mpv is not installed")
+	}
+	for _, fallback := range []bool{false, true} {
+		t.Run(fmt.Sprintf("fallback=%v", fallback), func(t *testing.T) {
+			dir := t.TempDir()
+			wrapper := filepath.Join(dir, "mpv")
+			script := "#!/bin/sh\nfor arg; do [ \"$arg\" = --vo=kitty ] && exit 3; done\nexec '" + strings.ReplaceAll(mpv, "'", "'\\''") + "' --no-config --ao=null \"$@\"\n"
+			if err := os.WriteFile(wrapper, []byte(script), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			playback := &terminalPlayback{
+				mpv: wrapper, output: config.VideoOutput("null"), stdin: strings.NewReader(""), stdout: io.Discard,
+				request: ctx, items: []PlayItem{{URL: testAudio(t, dir), RatingKey: "cancel-me"}},
+			}
+			if fallback {
+				playback.output, playback.preference = config.VideoKitty, config.VideoAuto
+			}
+			setTrack(&playback.status, playback.items[0])
+			var canceledAt time.Time
+			playback.report = func(_ context.Context, status PlayerStatus) {
+				if status.State == operations.StatePlaying && canceledAt.IsZero() {
+					canceledAt = time.Now()
+					cancel()
+				}
+			}
+			if err := playback.Run(); err != nil {
+				t.Fatal(err)
+			}
+			if canceledAt.IsZero() {
+				t.Fatal("player never started")
+			}
+			if elapsed := time.Since(canceledAt); elapsed > time.Second {
+				t.Fatalf("canceled playback kept running for %v", elapsed)
+			}
+		})
+	}
+}
 
 func summarizeReports(statuses []PlayerStatus) []timelineReport {
 	reports := make([]timelineReport, 0, len(statuses))

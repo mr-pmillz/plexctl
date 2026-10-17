@@ -4,6 +4,7 @@ package player
 
 import (
 	"context"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -50,6 +51,8 @@ func TestOverlayPlaybackWithRealMPV(t *testing.T) {
 	t.Cleanup(func() { layout.Update(w, h, false) })
 	for _, output := range []config.VideoOutput{config.VideoKitty, config.VideoSixel, config.VideoTCT, config.VideoAuto} {
 		t.Run(string(output), func(t *testing.T) {
+			layout.Update(78, 24, false)
+			config.Get().SixelVideoWidth = 160
 			if output == config.VideoAuto {
 				t.Setenv("TERM", "xterm-kitty")
 				t.Setenv("TERM_PROGRAM", "kitty")
@@ -97,6 +100,56 @@ func TestOverlayPlaybackWithRealMPV(t *testing.T) {
 			}
 			pm.TogglePause()()
 			waitAudio(t, pm, "pause overlay", func(s PlayerStatus) bool { return s.Paused() })
+			var beforeSize, afterSize struct{ W, H int }
+			var beforeTime, afterTime float64
+			var paused bool
+			pm.ioMu.Lock()
+			err = pm.conn.get("osd-dimensions", &beforeSize)
+			if err == nil {
+				err = pm.conn.get("time-pos", &beforeTime)
+			}
+			pm.ioMu.Unlock()
+			if err != nil {
+				t.Fatal(err)
+			}
+			layout.Update(110, 35, false)
+			config.Get().SixelVideoWidth = 0
+			if msg := pm.ResizeOverlay()(); msg != nil {
+				t.Fatalf("resize paused overlay: %v", msg)
+			}
+			// VO replacement is asynchronous even after set_property succeeds.
+			resizeDeadline := time.Now().Add(2 * time.Second)
+			var configured bool
+			for time.Now().Before(resizeDeadline) {
+				pm.ioMu.Lock()
+				err = pm.conn.get("vo-configured", &configured)
+				if err == nil {
+					err = pm.conn.get("osd-dimensions", &afterSize)
+				}
+				pm.ioMu.Unlock()
+				// TCT does not expose OSD dimensions; graphics VOs do.
+				if err != nil || configured && (want == config.VideoTCT || afterSize.W > beforeSize.W && afterSize.H > beforeSize.H) {
+					break
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			if err != nil || !configured || want != config.VideoTCT && (afterSize.W <= beforeSize.W || afterSize.H <= beforeSize.H) {
+				t.Fatalf("active video did not grow with the overlay: before=%+v after=%+v err=%v", beforeSize, afterSize, err)
+			}
+			pm.ioMu.Lock()
+			if err == nil {
+				err = pm.conn.get("time-pos", &afterTime)
+			}
+			if err == nil {
+				err = pm.conn.get("pause", &paused)
+			}
+			pm.ioMu.Unlock()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !paused || math.Abs(afterTime-beforeTime) > .1 {
+				t.Fatalf("resizing changed playback: paused=%v time=%g, want %g", paused, afterTime, beforeTime)
+			}
 			pm.SetOverlayVisible(false)
 			pm.SetOverlayVisible(true)
 			before, _ := file.Stat()

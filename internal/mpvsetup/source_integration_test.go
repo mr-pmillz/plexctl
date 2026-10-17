@@ -9,7 +9,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -60,6 +62,7 @@ case "$1" in
     done
     ;;
   compile)
+    printf '%s' "$$" > "$MPV_TEST_DIR/build-pid"
     if [ "$MPV_TEST_FAILURE" = compile ]; then printf 'compiler failed\n' >&2; exit 9; fi
     if [ "$MPV_TEST_FAILURE" = cancel ]; then
       /bin/sleep 30 &
@@ -269,5 +272,74 @@ func TestSourceBuildCancellationStopsCompilers(t *testing.T) {
 	}
 	if _, err := os.Lstat(p.link); !os.IsNotExist(err) {
 		t.Fatal("canceled build activated a player")
+	}
+}
+
+func TestSourceBuildSIGTERMCleansUp(t *testing.T) {
+	dir := fakeSourceTools(t)
+	t.Setenv("MPV_TEST_FAILURE", "cancel")
+	t.Setenv("PLEXCTL_BUILD_SIGNAL_HELPER", "1")
+	binary, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, binary, "-test.run=^TestSourceBuildSignalHelper$")
+	var output bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &output, &output
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		if data, err := os.ReadFile(filepath.Join(dir, "build-pid")); err == nil {
+			if pid, err := strconv.Atoi(string(data)); err == nil && pid > 0 {
+				_ = syscall.Kill(-pid, syscall.SIGKILL)
+			}
+		}
+		if cmd.ProcessState == nil {
+			_ = cmd.Wait()
+		}
+	})
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if data, _ := os.ReadFile(filepath.Join(dir, "child-pid")); len(data) > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "child-pid")); err != nil {
+		t.Fatal("compiler did not start")
+	}
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Wait(); err != nil {
+		t.Fatalf("SIGTERM bypassed build cleanup: %v\n%s", err, output.String())
+	}
+	if prefix, err := os.ReadFile(filepath.Join(dir, "prefix")); err != nil {
+		t.Fatal(err)
+	} else if _, err := os.Stat(string(prefix)); !os.IsNotExist(err) {
+		t.Fatal("interrupted build left its incomplete installation behind")
+	}
+}
+
+func TestSourceBuildSignalHelper(t *testing.T) {
+	if os.Getenv("PLEXCTL_BUILD_SIGNAL_HELPER") != "1" {
+		return
+	}
+	dir := os.Getenv("MPV_TEST_DIR")
+	deps, err := sourceDependencies(t.Context(), queryCommand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := newSourcePlan("0.41.0", dir, dir, deps, true, exec.LookPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = runSourceBuild(t.Context(), p, Options{Input: strings.NewReader(""), Output: os.Stdout, Error: os.Stderr})
+	if err == nil {
+		t.Fatal("terminated build succeeded")
 	}
 }

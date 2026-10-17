@@ -78,9 +78,12 @@ func (pm *PlayerManager) ResizeOverlay() tea.Cmd {
 		if pm.overlay.Load() == nil || pm.conn == nil {
 			return nil
 		}
-		for _, arg := range overlayArgs(pm.output, config.Get().SixelVideoWidth) {
-			option, value, _ := strings.Cut(strings.TrimPrefix(arg, "--"), "=")
-			_ = pm.conn.call("set_property", option, value)
+		var graph string
+		if err := pm.conn.get("lavfi-complex", &graph); err != nil {
+			return err
+		}
+		if err := resizeVideoOutput(pm.output, overlayArgs(pm.output, config.Get().SixelVideoWidth), graph, pm.conn.call); err != nil {
+			return err
 		}
 		pm.redrawOverlay.Store(true)
 		return nil

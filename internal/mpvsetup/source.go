@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -164,7 +163,7 @@ func displayCommand(args []string) string {
 }
 
 func runSourceBuild(ctx context.Context, p sourcePlan, opts Options) error {
-	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
+	ctx, stop := buildContext(ctx)
 	defer stop()
 	if err := runPlan(ctx, p.packages, opts); err != nil {
 		return err

@@ -21,11 +21,11 @@ func TestPaneZoomKeepsInitialLayout(t *testing.T) {
 			zoomed, mutations := tc.initial, 0
 			run := func(args ...string) ([]byte, error) {
 				switch {
-				case slices.Equal(args, []string{"display-message", "-p", "-t", "%42", "#{window_zoomed_flag}"}):
+				case slices.Equal(args, []string{"display-message", "-p", "-t", "%42", "#{window_id} #{window_zoomed_flag} #{pane_active}"}):
 					if zoomed {
-						return []byte("1\n"), nil
+						return []byte("@1 1 1\n"), nil
 					}
-					return []byte("0\n"), nil
+					return []byte("@1 0 1\n"), nil
 				case slices.Equal(args, []string{"resize-pane", "-Z", "-t", "%42"}):
 					mutations++
 					zoomed = !zoomed
@@ -66,7 +66,7 @@ func TestPaneZoomKeepsInitialLayout(t *testing.T) {
 }
 
 func TestPaneZoomLeavesExternalChangesAlone(t *testing.T) {
-	state := "0"
+	state := "@1 0 1"
 	p, err := newPaneZoom("%42", func(args ...string) ([]byte, error) {
 		if args[0] != "display-message" {
 			t.Fatal("restoration changed an externally zoomed pane")
@@ -76,7 +76,7 @@ func TestPaneZoomLeavesExternalChangesAlone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state = "1"
+	state = "@1 1 1"
 	if err := p.Restore(); err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestPaneZoomFailureAndSinglePane(t *testing.T) {
 		if args[0] == "resize-pane" {
 			return nil, failed
 		}
-		return []byte("0"), nil
+		return []byte("@1 0 1"), nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -136,7 +136,7 @@ func TestPaneZoomFailureAndSinglePane(t *testing.T) {
 	if err := p.Restore(); err != nil {
 		t.Fatal("failed toggle should not need restoration", err)
 	}
-	p, err = newPaneZoom("%42", func(...string) ([]byte, error) { return []byte("0"), nil })
+	p, err = newPaneZoom("%42", func(...string) ([]byte, error) { return []byte("@1 0 1"), nil })
 	if err != nil {
 		t.Fatal(err)
 	}

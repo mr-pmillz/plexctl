@@ -142,16 +142,29 @@ func (p *terminalPlayback) args(socket string) []string {
 	return args
 }
 
-func (p *terminalPlayback) Run() error {
-	if p.request != nil && p.request.Err() != nil {
+func (p *terminalPlayback) Run() (err error) {
+	ctx := p.request
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	// Superseded playback is a normal stop, including during output fallback.
+	defer func() {
+		if ctx.Err() != nil {
+			err = nil
+		}
+	}()
+	if ctx.Err() != nil {
 		return nil
 	}
 	initial := p.status
-	err := p.run()
+	err = p.run()
+	if ctx.Err() != nil {
+		return nil
+	}
 	if err == nil || p.preference != config.VideoAuto || p.started || !p.attempted || p.output == config.VideoTCT {
 		return err
 	}
-	if _, _, fallbackErr := terminalOutput(context.Background(), config.VideoTCT, os.Getenv); fallbackErr != nil {
+	if _, _, fallbackErr := terminalOutput(ctx, config.VideoTCT, os.Getenv); fallbackErr != nil {
 		return err
 	}
 	p.fallback, p.output, p.preference = p.output, config.VideoTCT, config.VideoTCT
@@ -160,6 +173,12 @@ func (p *terminalPlayback) Run() error {
 }
 
 func (p *terminalPlayback) run() error {
+	request := p.request
+	if request == nil {
+		request = context.Background()
+	}
+	ctx, cancel := context.WithCancel(request)
+	defer cancel()
 	for _, stream := range []any{p.stdin, p.stdout} {
 		if f, ok := stream.(interface{ Fd() uintptr }); ok && !term.IsTerminal(int(f.Fd())) {
 			return fmt.Errorf("terminal video requires an interactive terminal")
@@ -170,7 +189,7 @@ func (p *terminalPlayback) run() error {
 		p.sharedMemory = caps.KittySharedMemory
 		if p.preference != config.VideoWindow {
 			var err error
-			p.mpv, p.output, err = terminalOutput(context.Background(), p.preference, os.Getenv)
+			p.mpv, p.output, err = terminalOutput(ctx, p.preference, os.Getenv)
 			if err != nil {
 				return err
 			}
@@ -197,7 +216,7 @@ func (p *terminalPlayback) run() error {
 		socket = `\\.\pipe\` + filepath.Base(dir)
 	}
 
-	cmd := exec.Command(p.mpv, p.args(socket)...)
+	cmd := exec.CommandContext(ctx, p.mpv, p.args(socket)...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = p.stdin, p.stdout, io.Discard
 	var keys <-chan string
 	var graphics *termgraphics.Writer
@@ -303,12 +322,10 @@ func (p *terminalPlayback) run() error {
 		}
 	}()
 
-	conn, err := connectTerminal(socket, done)
+	conn, err := connectTerminal(ctx, socket, done)
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	events := make(chan terminalEvent, 64)
 	readerDone := make(chan struct{})
 	go func() {
@@ -327,6 +344,9 @@ func (p *terminalPlayback) run() error {
 	if controls != nil {
 		properties = append(properties, "volume", "mute", "speed", "sub-visibility")
 	}
+	graphPropertyID := len(properties) + 1
+	properties = append(properties, "lavfi-complex")
+	videoGraph := p.visualizer
 	for id, property := range properties {
 		if err := sendTerminalCommand(conn, 0, "observe_property", id+1, property); err != nil {
 			return err
@@ -353,7 +373,7 @@ func (p *terminalPlayback) run() error {
 		}
 		// Drain acknowledgements while building large artist queues. Otherwise
 		// a full event channel can block mpv's IPC output and our next write.
-		if err := awaitQueueLoad(events, &pending); err != nil {
+		if err := awaitQueueLoad(ctx, events, &pending); err != nil {
 			return err
 		}
 	}
@@ -472,6 +492,10 @@ func (p *terminalPlayback) run() error {
 			}
 			p.reportStatus()
 		case "property-change":
+			if ev.ID == graphPropertyID {
+				_ = json.Unmarshal(ev.Data, &videoGraph)
+				return nil
+			}
 			oldState := p.status.State
 			p.applyProperty(ev)
 			if controls != nil && len(ev.Data) > 0 && string(ev.Data) != "null" {
@@ -502,6 +526,8 @@ func (p *terminalPlayback) run() error {
 	}
 	for {
 		select {
+		case <-ctx.Done():
+			return ctx.Err()
 		case data, ok := <-keys:
 			if !ok {
 				keys = nil
@@ -536,11 +562,10 @@ func (p *terminalPlayback) run() error {
 				lastPaneCheck = time.Now()
 			}
 			if resized && p.output == config.VideoSixel {
-				for _, arg := range p.sixelArgs() {
-					option, value, _ := strings.Cut(strings.TrimPrefix(arg, "--"), "=")
-					if err := sendTerminalCommand(conn, 0, "set_property", option, value); err != nil {
-						return err
-					}
+				if err := resizeVideoOutput(p.output, p.sixelArgs(), videoGraph, func(args ...any) error {
+					return sendTerminalCommand(conn, 0, args...)
+				}); err != nil {
+					return err
 				}
 			}
 			if controls == nil {
@@ -612,11 +637,13 @@ func (p *terminalPlayback) sixelArgs() []string {
 	return sixelSizeArgs(p.sixelWidth, columns, rows, cw, ch)
 }
 
-func awaitQueueLoad(events <-chan terminalEvent, pending *[]terminalEvent) error {
+func awaitQueueLoad(ctx context.Context, events <-chan terminalEvent, pending *[]terminalEvent) error {
 	timer := time.NewTimer(5 * time.Second)
 	defer timer.Stop()
 	for {
 		select {
+		case <-ctx.Done():
+			return ctx.Err()
 		case event, ok := <-events:
 			if !ok {
 				return fmt.Errorf("mpv disconnected while building the playback queue")
@@ -695,13 +722,15 @@ func (p *terminalPlayback) applyProperty(ev terminalEvent) {
 	}
 }
 
-func connectTerminal(socket string, done <-chan struct{}) (net.Conn, error) {
+func connectTerminal(ctx context.Context, socket string, done <-chan struct{}) (net.Conn, error) {
 	timeout := time.NewTimer(5 * time.Second)
 	defer timeout.Stop()
 	retry := time.NewTicker(50 * time.Millisecond)
 	defer retry.Stop()
 	for {
 		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
 		case <-done:
 			return nil, fmt.Errorf("mpv exited before terminal playback started; check 'mpv --vo=help'")
 		case <-timeout.C:

@@ -16,8 +16,14 @@ import (
 type PaneZoom struct {
 	pane    string
 	run     func(...string) ([]byte, error)
-	initial bool
+	initial paneZoomState
+	last    paneZoomState
 	changed bool
+}
+
+type paneZoomState struct {
+	window         string
+	zoomed, active bool
 }
 
 // NewPaneZoom returns nil outside an actual tmux pane.
@@ -34,27 +40,30 @@ func NewPaneZoom() (*PaneZoom, error) {
 
 func newPaneZoom(pane string, run func(...string) ([]byte, error)) (*PaneZoom, error) {
 	p := &PaneZoom{pane: pane, run: run}
-	initial, err := p.Zoomed()
+	initial, err := p.state()
 	if err != nil {
 		return nil, err
 	}
-	p.initial = initial
+	p.initial, p.last = initial, initial
 	return p, nil
 }
 
 func (p *PaneZoom) Zoomed() (bool, error) {
-	value, err := p.run("display-message", "-p", "-t", p.pane, "#{window_zoomed_flag}")
+	state, err := p.state()
+	return state.zoomed && state.active, err
+}
+
+func (p *PaneZoom) state() (paneZoomState, error) {
+	value, err := p.run("display-message", "-p", "-t", p.pane, "#{window_id} #{window_zoomed_flag} #{pane_active}")
 	if err != nil {
-		return false, fmt.Errorf("inspect tmux pane zoom: %w", err)
+		return paneZoomState{}, fmt.Errorf("inspect tmux pane zoom: %w", err)
 	}
-	switch strings.TrimSpace(string(value)) {
-	case "0":
-		return false, nil
-	case "1":
-		return true, nil
-	default:
-		return false, fmt.Errorf("tmux did not report the playback pane's zoom state")
+	fields := strings.Fields(string(value))
+	if len(fields) != 3 || !strings.HasPrefix(fields[0], "@") ||
+		(fields[1] != "0" && fields[1] != "1") || (fields[2] != "0" && fields[2] != "1") {
+		return paneZoomState{}, fmt.Errorf("tmux did not report the playback pane's zoom state")
 	}
+	return paneZoomState{window: fields[0], zoomed: fields[1] == "1", active: fields[2] == "1"}, nil
 }
 
 // Origin is the pane's position in the attached terminal, including a status
@@ -91,26 +100,40 @@ func (p *PaneZoom) Origin() (int, int, error) {
 }
 
 func (p *PaneZoom) Toggle() (bool, error) {
+	before, err := p.state()
+	if err != nil {
+		return false, err
+	}
+	// A later explicit toggle starts from the user's current layout, including
+	// changes made outside playback or moving the pane to another window.
+	if !p.changed || before != p.last {
+		p.initial = before
+	}
 	if _, err := p.run("resize-pane", "-Z", "-t", p.pane); err != nil {
 		return false, fmt.Errorf("toggle terminal playback fullscreen: %w", err)
 	}
-	p.changed = true
 	// tmux leaves a one-pane window unzoomed. Read the actual result instead
 	// of assuming every successful command changed the state.
-	return p.Zoomed()
+	after, err := p.state()
+	if err != nil {
+		return false, err
+	}
+	p.last = after
+	p.changed = after.zoomed != p.initial.zoomed
+	return after.zoomed && after.active, nil
 }
 
-// Restore preserves a pre-existing zoom and leaves external changes alone if
-// playback never used its fullscreen control.
+// Restore undoes playback's outstanding zoom change only while the same pane
+// and window still have the state left by its last fullscreen toggle.
 func (p *PaneZoom) Restore() error {
 	if !p.changed {
 		return nil
 	}
-	zoomed, err := p.Zoomed()
+	current, err := p.state()
 	if err != nil {
 		return err
 	}
-	if zoomed != p.initial {
+	if current == p.last && current.zoomed != p.initial.zoomed {
 		if _, err := p.Toggle(); err != nil {
 			return err
 		}

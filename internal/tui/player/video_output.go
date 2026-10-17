@@ -77,14 +77,14 @@ func selectTerminalOutput(preference config.VideoOutput, help string, getenv fun
 // sixelSizeArgs bounds the pixel work without stretching the physical cells.
 // Both the pixel size and matching cell geometry must describe the same area.
 func sixelSizeArgs(limit, columns, rows, cellW, cellH int) []string {
-	if limit <= 0 {
-		return nil
-	}
 	if cellW <= 0 || cellH <= 0 {
 		cellW, cellH = 8, 16
 	}
 	columns, rows = max(1, columns), max(2, rows)
-	width := min(columns*cellW, limit)
+	width := columns * cellW
+	if limit > 0 {
+		width = min(width, limit)
+	}
 	cols := max(1, width/cellW)
 	return []string{
 		fmt.Sprintf("--vo-sixel-width=%d", width),
@@ -93,4 +93,34 @@ func sixelSizeArgs(limit, columns, rows, cellW, cellH int) []string {
 		fmt.Sprintf("--vo-sixel-rows=%d", rows),
 		fmt.Sprintf("--vo-sixel-left=%d", (columns-cols)/2+1),
 	}
+}
+
+// Terminal VOs copy their private options at initialization. Updating option
+// properties alone succeeds but leaves the active output using its old size.
+// Recreate the VO after applying the complete geometry, preserving pause/time.
+func resizeVideoOutput(output config.VideoOutput, args []string, graph string, call func(...any) error) error {
+	for _, arg := range args {
+		option, value, _ := strings.Cut(strings.TrimPrefix(arg, "--"), "=")
+		if err := call("set_property", option, value); err != nil {
+			return fmt.Errorf("resize terminal video: %w", err)
+		}
+	}
+	// Assigning the same VO is optimized away by mpv; use null as a temporary
+	// output so no window can open and the next assignment reloads the options.
+	for _, vo := range []string{"null", string(output)} {
+		if err := call("set_property", "vo", vo); err != nil {
+			return fmt.Errorf("reconfigure terminal video: %w", err)
+		}
+	}
+	// mpv's VO replacement reconnects native video tracks, but not a video
+	// stream produced by lavfi-complex. Reapply that graph to reconnect music
+	// visualizers too. Whitespace forces an update before restoring its value.
+	if graph != "" {
+		for _, value := range []string{graph + " ", graph} {
+			if err := call("set_property", "lavfi-complex", value); err != nil {
+				return fmt.Errorf("reconnect terminal visualizer: %w", err)
+			}
+		}
+	}
+	return nil
 }

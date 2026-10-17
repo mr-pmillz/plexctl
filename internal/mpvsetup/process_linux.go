@@ -1,10 +1,17 @@
 package mpvsetup
 
 import (
+	"context"
+	"os"
 	"os/exec"
+	"os/signal"
 	"syscall"
 	"time"
 )
+
+func buildContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+}
 
 func prepareBuildCommand(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

@@ -2,6 +2,15 @@
 
 package mpvsetup
 
-import "os/exec"
+import (
+	"context"
+	"os"
+	"os/exec"
+	"os/signal"
+)
+
+func buildContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return signal.NotifyContext(ctx, os.Interrupt)
+}
 
 func prepareBuildCommand(_ *exec.Cmd) {}
