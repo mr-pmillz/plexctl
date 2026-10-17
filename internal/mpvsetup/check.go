@@ -71,6 +71,10 @@ func installed(ctx context.Context) (Status, error) {
 		}
 		return Status{}, fmt.Errorf("find mpv: %w", err)
 	}
+	return inspect(ctx, path)
+}
+
+func inspect(ctx context.Context, path string) (Status, error) {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, path, "--no-config", "--version").Output()
@@ -85,6 +89,11 @@ func installed(ctx context.Context) (Status, error) {
 		return Status{}, fmt.Errorf("unrecognized mpv version at %s", path)
 	}
 	return Status{Path: path, Installed: strings.TrimPrefix(fields[1], "v")}, nil
+}
+
+func stableVersion(v string) bool {
+	_, ok := version(v)
+	return ok && !strings.ContainsAny(v, "-+")
 }
 
 type releaseCache struct {
@@ -109,7 +118,7 @@ func latest(ctx context.Context, client *http.Client, endpoint, cacheDir string,
 	if cacheDir != "" {
 		data, _ := os.ReadFile(path)
 		_ = json.Unmarshal(data, &cached)
-		if _, ok := version(cached.Version); !ok {
+		if !stableVersion(cached.Version) {
 			cached = releaseCache{}
 		}
 	}
@@ -141,7 +150,7 @@ func latest(ctx context.Context, client *http.Client, endpoint, cacheDir string,
 		return cached.Version, fmt.Errorf("invalid mpv release response")
 	}
 	v := strings.TrimPrefix(release.Tag, "v")
-	if _, ok := version(v); !ok || strings.ContainsAny(v, "-+") || release.Prerelease || release.Draft {
+	if !stableVersion(v) || release.Prerelease || release.Draft {
 		return cached.Version, fmt.Errorf("mpv release response did not identify a stable version")
 	}
 	if cacheDir != "" {

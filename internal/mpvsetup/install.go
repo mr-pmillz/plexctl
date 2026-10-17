@@ -18,11 +18,13 @@ const installHelp = "https://mpv.io/installation/"
 // Plan contains only fixed package-manager arguments, never release metadata.
 type Plan struct {
 	Commands [][]string
+	apt      bool
 }
 
 func installPlan(goos string, lookup func(string) (string, error), missing, root bool) (Plan, error) {
 	has := func(name string) bool { _, err := lookup(name); return err == nil }
 	var commands [][]string
+	apt := false
 	privileged := goos != "windows"
 	switch {
 	case (goos == "darwin" || goos == "linux") && has("brew"):
@@ -33,6 +35,7 @@ func installPlan(goos string, lookup func(string) (string, error), missing, root
 		}
 		commands = [][]string{{"brew", "update"}, {"brew", action, "mpv"}}
 	case goos == "linux" && has("apt-get"):
+		apt = true
 		commands = [][]string{{"apt-get", "update"}, {"apt-get", "install", "--yes", "mpv"}}
 	case goos == "linux" && has("dnf"):
 		commands = [][]string{{"dnf", "install", "--refresh", "--assumeyes", "mpv"}}
@@ -54,7 +57,7 @@ func installPlan(goos string, lookup func(string) (string, error), missing, root
 			commands[i] = append([]string{"sudo"}, commands[i]...)
 		}
 	}
-	return Plan{Commands: commands}, nil
+	return Plan{Commands: commands, apt: apt}, nil
 }
 
 type Options struct {
@@ -132,6 +135,18 @@ func Ensure(ctx context.Context, opts Options) error {
 		_, _ = fmt.Fprintln(opts.Error, "mpv update available; run 'plexctl mpv install' to approve an update.")
 		return nil
 	}
+	// Inspect apt before offering a package known to be too old. This also lets
+	// users with all build dependencies installed build without needing sudo.
+	_, aptErr := exec.LookPath("apt-get")
+	_, brewErr := exec.LookPath("brew")
+	if runtime.GOOS == "linux" && aptErr == nil && brewErr != nil && s.Latest != "" {
+		packages, queryErr := aptPackages(ctx, queryCommand, []string{"mpv"})
+		candidate := packages["mpv"].candidate
+		if queryErr == nil && (candidate == "" || olderAPT(candidate, s.Latest)) {
+			_, _ = fmt.Fprintf(opts.Output, "Apt offers mpv %s; building stable mpv %s from source instead.\n", availableVersion(candidate), s.Latest)
+			return dependencyError(opts, offerSourceBuild(ctx, s, opts))
+		}
+	}
 	plan, err := installPlan(runtime.GOOS, exec.LookPath, missing, os.Geteuid() == 0)
 	if err != nil {
 		return dependencyError(opts, err)
@@ -168,12 +183,20 @@ func Ensure(ctx context.Context, opts Options) error {
 	}
 	_, _ = fmt.Fprintf(opts.Output, "Using mpv %s (%s).\n", after.Installed, after.Path)
 	if s.Latest != "" && older(after.Installed, s.Latest) {
+		if plan.apt {
+			_, _ = fmt.Fprintln(opts.Output, "The apt installation is still outdated; a source build is available.")
+			after.Latest = s.Latest
+			return dependencyError(opts, offerSourceBuild(ctx, after, opts))
+		}
 		return dependencyError(opts, fmt.Errorf("mpv %s is still older than %s; your repositories may be behind or another mpv may take precedence on PATH; see %s", after.Installed, s.Latest, installHelp))
 	}
 	return nil
 }
 
 func dependencyError(opts Options, err error) error {
+	if err == nil {
+		return nil
+	}
 	if opts.Required {
 		return err
 	}

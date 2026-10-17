@@ -9,6 +9,41 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
+func TestVideoAnchorsEveryPacketInTmuxPane(t *testing.T) {
+	const cursor = "\x1b[13;1f"
+	const first = "\x1b_Ga=T,f=24,s=531,v=298,m=1;AAAA\x1b\\"
+	const last = "\x1b_Gm=0;BBBB\x1b\\"
+	for split := 1; split <= len(cursor+first+last); split++ {
+		var output bytes.Buffer
+		w := Writer{Output: &output}
+		w.SetPaneOrigin(74, 2)
+		input := cursor + first + last
+		for at := 0; at < len(input); at += split {
+			if _, err := w.Write([]byte(input[at:min(at+split, len(input))])); err != nil {
+				t.Fatal(err)
+			}
+		}
+		want := cursor + ansi.TmuxPassthrough("\x1b[15;75H"+first) + ansi.TmuxPassthrough("\x1b[15;75H"+last)
+		if output.String() != want {
+			t.Fatalf("chunk size %d did not anchor every graphics packet in the pane", split)
+		}
+		if w.Frame() != (Frame{X: 0, Y: 12, Width: 531, Height: 298}) {
+			t.Fatal("mouse coordinates must stay relative to the pane", w.Frame())
+		}
+		output.Reset()
+		if !w.SetPaneOrigin(0, 0) || w.SetPaneOrigin(0, 0) {
+			t.Fatal("pane movement was not detected")
+		}
+		if _, err := w.Write([]byte(cursor + first + last)); err != nil {
+			t.Fatal(err)
+		}
+		want = cursor + ansi.TmuxPassthrough("\x1b[13;1H"+first) + ansi.TmuxPassthrough("\x1b[13;1H"+last)
+		if output.String() != want {
+			t.Fatal("graphics kept the old pane offset after fullscreen")
+		}
+	}
+}
+
 func TestVideoRetainsPreviousFrameDuringUpload(t *testing.T) {
 	const first = "\x1b_Ga=T,f=24,s=2,v=1,m=1;AAAA\x1b\\"
 	const middle = "\x1b_Gm=1;CCCC\x1b\\"

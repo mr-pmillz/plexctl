@@ -11,7 +11,7 @@ A robust Plex CLI and TUI written in Go.
 `plexctl` uses **mpv** for media playback. Before opening the TUI or playing media,
 it checks the copy on your PATH against the latest stable mpv release. When mpv
 is missing or outdated, it offers installation or an update and shows the exact
-package-manager commands. Nothing is installed unless you answer **yes** in an
+installation commands. Nothing is installed unless you answer **yes** in an
 interactive terminal. You can decline and keep browsing or use an existing player.
 
 Run `plexctl mpv` to check explicitly, or `plexctl mpv install` to approve an
@@ -20,14 +20,30 @@ are cached for a day; offline checks do not block an installed player. Developme
 builds newer than the stable release are not downgraded.
 
 Automatic installation supports Homebrew and common Linux package managers.
-Distribution repositories can lag upstream; plexctl rechecks the resolved binary
-after installation and reports if it is still outdated. Other systems receive
-manual installation instructions from [mpv.io](https://mpv.io/installation/).
+On Debian/Ubuntu, plexctl checks apt's candidate first. If it is older than the
+latest stable release, it offers to compile that release from source using
+[mpv's Meson build](https://github.com/mpv-player/mpv#compilation). The dependency
+pre-check lists all required packages and identifies which need installing or
+upgrading, including **Meson from apt**, FFmpeg development libraries, libass,
+Lua, audio/display headers, and **libsixel-dev**. You approve the dependency and
+build commands together. An unavailable or outdated libplacebo is built as a
+static Meson subproject. Older distributions that cannot supply the required
+Meson/FFmpeg development versions receive an actionable pre-check error.
+
+Source builds enable Sixel and Lua explicitly, verify Kitty/Sixel/text/window
+video outputs, and install under `~/.local/opt/plexctl-mpv-<version>-<build-id>`.
+Only a successful build is activated via `~/.local/bin/mpv`; an existing file or
+symlink is preserved alongside it. Put `~/.local/bin` first on your PATH for future
+shells (plexctl prints the command when needed). Build logs and sources remain in
+the plexctl cache for troubleshooting. A failed build keeps the previous player.
+Other package managers recheck the installed version and report outdated packages;
+unsupported systems receive instructions from [mpv.io](https://mpv.io/installation/).
 
 ### Installation Instructions
 
 - **macOS**: `brew install mpv`
-- **Linux**: `sudo apt install mpv` or `sudo pacman -S mpv`
+- **Debian/Ubuntu**: `plexctl mpv install` (uses a source build when apt is too old)
+- **Other Linux**: Use your package manager, such as `sudo pacman -S mpv`
 - **Windows**: Download from [mpv.io](https://mpv.io/)
 
 ## Installation
@@ -102,7 +118,9 @@ playback. **Ctrl+P** starts terminal playback using your saved preference.
 Kitty video includes a visible control bar: play/pause, a draggable seek bar,
 skip backward/forward, volume, mute, subtitles, playback speed, and **Return**.
 Click the controls or use **Tab / Shift+Tab** and **Enter**; **h** hides or shows
-the bar. The controls also work through tmux and SSH into a Kitty terminal.
+the bar. In tmux, playback stays within the current pane. Press **f** or click
+**Fullscreen** to zoom it; press **f** again or click **Restore** to return to
+the split layout. The controls also work through tmux and SSH into a Kitty terminal.
 
 The player uses mpv's Kitty or Sixel graphics output when detected, with TCT text
 output as a fallback. Press **Space** to pause, use the arrow keys to seek, and
@@ -119,7 +137,8 @@ plexctl play 12345 --terminal-video auto
 Graphics playback requires a compatible terminal and an mpv build that lists the
 chosen renderer in `mpv --vo=help`. plexctl probes the attached terminal, including
 through tmux, and uses text output when graphics are unavailable. In tmux 3.3+,
-suspended playback temporarily zooms its pane and restores the layout on exit.
+suspended playback preserves the pane size until you toggle fullscreen with **f**.
+Playback restores the original zoom state on exit if you used this control.
 On Linux, a terminal that confirms local shared-memory access uses that faster
 transport; SSH and other terminals keep using portable graphics packets.
 

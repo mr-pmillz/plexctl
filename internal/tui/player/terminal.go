@@ -203,43 +203,60 @@ func (p *terminalPlayback) run() error {
 	var graphics *termgraphics.Writer
 	var controls *terminalControls
 	var cellW, cellH float64
+	paneZoom, err := termgraphics.NewPaneZoom()
+	if err != nil {
+		return err
+	}
+	if paneZoom != nil {
+		defer func() {
+			if err := paneZoom.Restore(); err != nil {
+				slog.Warn("Restore terminal playback pane", "error", err)
+			}
+		}()
+	}
 	if termgraphics.InTmux() && (p.output == config.VideoKitty || p.output == config.VideoSixel) {
 		restore, err := termgraphics.EnablePassthrough()
 		if err != nil {
 			return err
 		}
 		defer restore()
-		unzoom, err := termgraphics.ZoomPane()
-		if err != nil {
-			return err
-		}
-		defer unzoom()
 		if p.output == config.VideoSixel {
-			cmd.Stdout = &termgraphics.Writer{Output: p.stdout}
+			graphics = &termgraphics.Writer{Output: p.stdout}
+			cmd.Stdout = graphics
 			defer func() {
-				_, _ = io.WriteString(p.stdout, termgraphics.Wrap("\x1b[2J\x1b[H"))
+				_, _ = io.WriteString(p.stdout, "\x1b[2J\x1b[H")
 			}()
 		}
 	}
 	if p.output == config.VideoKitty {
 		controls = &terminalControls{focus: -1, hover: -1, speed: 1, subtitles: true}
+		controls.canFullscreen = paneZoom != nil
+		if paneZoom != nil {
+			controls.fullscreen, err = paneZoom.Zoomed()
+			if err != nil {
+				return err
+			}
+		}
 		p.status.Volume = 100
 		graphics = &termgraphics.Writer{Output: p.stdout, Direct: !termgraphics.InTmux(), ImageID: (1 << 30) + 2*rand.IntN(1<<19)}
 		cmd.Stdout = graphics
 		defer func() { _, _ = io.WriteString(p.stdout, termgraphics.Wrap(graphics.DeleteImages())) }()
 	}
 	if p.output == config.VideoSixel {
-		columns, rows := 80, 24
-		cw, ch := termgraphics.Current().CellWidth, termgraphics.Current().CellHeight
-		if input, ok := p.stdin.(*os.File); ok {
-			if w, h, err := term.GetSize(int(input.Fd())); err == nil {
-				columns, rows = w, h
-			}
-			if w, h := terminalCellSize(input); w > 0 && h > 0 {
-				cw, ch = int(w), int(h)
-			}
+		cmd.Args = append(cmd.Args, p.sixelArgs()...)
+	}
+	updateOrigin := func() (bool, error) {
+		if paneZoom == nil || graphics == nil {
+			return false, nil
 		}
-		cmd.Args = append(cmd.Args, sixelSizeArgs(p.sixelWidth, columns, rows, cw, ch)...)
+		x, y, err := paneZoom.Origin()
+		if err != nil {
+			return false, err
+		}
+		return graphics.SetPaneOrigin(x, y), nil
+	}
+	if _, err := updateOrigin(); err != nil {
+		return err
 	}
 	// Our wrapper handles actual tmux panes. Also remove stale tmux variables
 	// from direct Kitty windows so mpv cannot wrap their graphics by mistake.
@@ -356,6 +373,7 @@ func (p *terminalPlayback) run() error {
 	controlTicker := time.NewTicker(100 * time.Millisecond)
 	defer controlTicker.Stop()
 	var controlColumns, controlRows int
+	lastPaneCheck := time.Now()
 	keyTimer := time.NewTimer(time.Hour)
 	keyTimer.Stop()
 	defer keyTimer.Stop()
@@ -379,6 +397,8 @@ func (p *terminalPlayback) run() error {
 				}
 				frame := graphics.Frame()
 				command = controls.input(input, controls.layout(frame, p.status), frame, cellW, cellH, p.status)
+			} else if input.Key == "f" && paneZoom != nil {
+				command = []any{"cycle", "fullscreen"}
 			} else {
 				key := input.Key
 				if input.Mouse != nil {
@@ -389,6 +409,20 @@ func (p *terminalPlayback) run() error {
 				}
 			}
 			if len(command) == 0 {
+				continue
+			}
+			if paneZoom != nil && len(command) == 2 && command[0] == "cycle" && command[1] == "fullscreen" {
+				zoomed, err := paneZoom.Toggle()
+				if err != nil {
+					return err
+				}
+				if _, err := updateOrigin(); err != nil {
+					return err
+				}
+				if controls != nil {
+					controls.fullscreen = zoomed
+					controls.dragging, controls.hover = false, -1
+				}
 				continue
 			}
 			if err := sendTerminalCommand(conn, 0, command...); err != nil {
@@ -483,10 +517,9 @@ func (p *terminalPlayback) run() error {
 				return err
 			}
 		case <-controlTicker.C:
-			if controls == nil || !loaded {
+			if !loaded {
 				continue
 			}
-			layout := controls.layout(graphics.Frame(), p.status)
 			resized := false
 			if input, ok := p.stdin.(*os.File); ok {
 				if columns, rows, err := term.GetSize(int(input.Fd())); err == nil {
@@ -494,6 +527,31 @@ func (p *terminalPlayback) run() error {
 					controlColumns, controlRows = columns, rows
 				}
 			}
+			if resized || time.Since(lastPaneCheck) >= time.Second {
+				moved, err := updateOrigin()
+				if err != nil {
+					return err
+				}
+				resized = resized || moved
+				lastPaneCheck = time.Now()
+			}
+			if resized && p.output == config.VideoSixel {
+				for _, arg := range p.sixelArgs() {
+					option, value, _ := strings.Cut(strings.TrimPrefix(arg, "--"), "=")
+					if err := sendTerminalCommand(conn, 0, "set_property", option, value); err != nil {
+						return err
+					}
+				}
+			}
+			if controls == nil {
+				continue
+			}
+			if resized && paneZoom != nil {
+				if zoomed, err := paneZoom.Zoomed(); err == nil {
+					controls.fullscreen = zoomed
+				}
+			}
+			layout := controls.layout(graphics.Frame(), p.status)
 			overlay := controls.overlay(layout, p.status)
 			// A paused Kitty VO needs an OSD redraw to process SIGWINCH.
 			// Resending the overlay preserves pause and the playback position.
@@ -538,6 +596,20 @@ func (p *terminalPlayback) run() error {
 			}
 		}
 	}
+}
+
+func (p *terminalPlayback) sixelArgs() []string {
+	columns, rows := 80, 24
+	cw, ch := termgraphics.Current().CellWidth, termgraphics.Current().CellHeight
+	if input, ok := p.stdin.(*os.File); ok {
+		if w, h, err := term.GetSize(int(input.Fd())); err == nil {
+			columns, rows = w, h
+		}
+		if w, h := terminalCellSize(input); w > 0 && h > 0 {
+			cw, ch = int(w), int(h)
+		}
+	}
+	return sixelSizeArgs(p.sixelWidth, columns, rows, cw, ch)
 }
 
 func awaitQueueLoad(events <-chan terminalEvent, pending *[]terminalEvent) error {

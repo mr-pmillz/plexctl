@@ -16,7 +16,7 @@ func TestVideoControlsMouse(t *testing.T) {
 		{X: 12, Y: 6, Width: 720, Height: 406},
 		{X: 35, Y: 1, Width: 450, Height: 800},
 	} {
-		c := terminalControls{focus: -1, hover: -1, speed: 1}
+		c := terminalControls{focus: -1, hover: -1, speed: 1, canFullscreen: true}
 		status := PlayerStatus{Time: 30, Duration: 120, Volume: 80}
 		l := c.layout(frame, status)
 		at := func(x, y float64, button int, pressed bool) []any {
@@ -28,7 +28,7 @@ func TestVideoControlsMouse(t *testing.T) {
 		for i, want := range [][]any{
 			{"cycle", "pause"}, {"seek", -10, "relative+exact"}, {"seek", 10, "relative+exact"},
 			{"cycle", "mute"}, {"add", "volume", -5}, {"add", "volume", 5},
-			{"cycle", "sub-visibility"}, {"set_property", "speed", 1.25}, {"quit"},
+			{"cycle", "sub-visibility"}, {"set_property", "speed", 1.25}, {"cycle", "fullscreen"}, {"quit"},
 		} {
 			button := l.buttons[i]
 			got := at(button.x+button.w/2, button.y+button.h/2, 0, true)
@@ -59,6 +59,45 @@ func TestVideoControlsMouse(t *testing.T) {
 		if got := at(l.seek.x+l.seek.w/2, l.seek.y+l.seek.h/2, 0, true); len(got) != 0 {
 			t.Fatal("seek without a duration", got)
 		}
+	}
+}
+
+func TestVideoControlsFullscreen(t *testing.T) {
+	c := terminalControls{focus: -1, hover: -1, speed: 1, canFullscreen: true}
+	frame := termgraphics.Frame{Width: 450, Height: 254}
+	status := PlayerStatus{Duration: 120}
+	l := c.layout(frame, status)
+	for i, b := range l.buttons {
+		if b.x < 0 || b.x+b.w > float64(l.w) || (i > 0 && b.x < l.buttons[i-1].x+l.buttons[i-1].w) {
+			t.Fatal("fullscreen control overlaps another button in a small pane")
+		}
+	}
+	want := []any{"cycle", "fullscreen"}
+	if !strings.Contains(c.overlay(l, status), "Fullscreen") || !strings.Contains(c.overlay(l, status), "f: fullscreen") {
+		t.Fatal("fullscreen button or shortcut hint is missing")
+	}
+	for _, hidden := range []bool{false, true} {
+		c.hidden = hidden
+		if got := c.input(playbackInput{Key: "f"}, l, frame, 8, 16, status); !reflect.DeepEqual(got, want) {
+			t.Fatalf("fullscreen shortcut (hidden=%v): %v", hidden, got)
+		}
+	}
+	c.hidden = false
+	c.focus = len(l.buttons) - 2
+	if got := c.input(playbackInput{Key: "ENTER"}, l, frame, 8, 16, status); !reflect.DeepEqual(got, want) {
+		t.Fatal("fullscreen button cannot be activated from the keyboard", got)
+	}
+	c.fullscreen = true
+	if !strings.Contains(c.overlay(c.layout(frame, status), status), "Restore") {
+		t.Fatal("fullscreen button does not show how to restore the pane")
+	}
+	c.canFullscreen = false
+	l = c.layout(frame, status)
+	if strings.Contains(c.overlay(l, status), "Fullscreen") || strings.Contains(c.overlay(l, status), "f: fullscreen") {
+		t.Fatal("tmux fullscreen control shown outside tmux")
+	}
+	if got := c.input(playbackInput{Key: "f"}, l, frame, 8, 16, status); !reflect.DeepEqual(got, []any{"keypress", "f"}) {
+		t.Fatal("mpv fullscreen binding outside tmux was lost", got)
 	}
 }
 

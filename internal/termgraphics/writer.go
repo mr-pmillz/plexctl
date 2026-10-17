@@ -29,6 +29,20 @@ type Writer struct {
 	cursorX, cursorY int
 	mu               sync.RWMutex
 	frame            Frame
+	originX, originY int
+	originSet        bool
+}
+
+// SetPaneOrigin anchors each passthrough packet in the physical terminal.
+// tmux forwards raw graphics without moving its cursor and resets that cursor
+// between packets; a pane-relative CSI alone cannot position a split's video.
+// It returns whether the placement changed, so paused video can be redrawn.
+func (w *Writer) SetPaneOrigin(x, y int) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	changed := !w.originSet || w.originX != x || w.originY != y
+	w.originX, w.originY, w.originSet = x, y, true
+	return changed
 }
 
 // Frame describes the actual Kitty placement: a cell origin and pixel size.
@@ -132,6 +146,13 @@ func (w *Writer) Write(p []byte) (n int, err error) {
 		}
 		packet := sequence
 		if !w.Direct {
+			w.mu.RLock()
+			if w.originSet {
+				// Keep the absolute cursor move inside the same passthrough as
+				// the graphics, including continuation packets after a reset.
+				sequence = fmt.Sprintf("\x1b[%d;%dH", w.originY+w.cursorY+1, w.originX+w.cursorX+1) + sequence
+			}
+			w.mu.RUnlock()
 			packet = ansi.TmuxPassthrough(sequence)
 		}
 		if _, err := w.buffered.WriteString(packet); err != nil {

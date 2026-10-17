@@ -152,38 +152,6 @@ func Wrap(sequence string) string {
 	return sequence
 }
 
-// ZoomPane gives passthrough video the terminal area while it owns input. tmux
-// cannot clip a passthrough image to a split pane. Restore the previous layout
-// after playback, including on a player error.
-func ZoomPane() (func(), error) {
-	noop := func() {}
-	if !InTmux() {
-		return noop, nil
-	}
-	pane := os.Getenv("TMUX_PANE")
-	run := func(args ...string) ([]byte, error) {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		defer cancel()
-		return exec.CommandContext(ctx, "tmux", args...).Output()
-	}
-	zoom, err := run("display-message", "-p", "-t", pane, "#{window_zoomed_flag}")
-	if err != nil {
-		return noop, fmt.Errorf("inspect tmux pane: %w", err)
-	}
-	if strings.TrimSpace(string(zoom)) == "1" {
-		return noop, nil
-	}
-	if _, err := run("resize-pane", "-Z", "-t", pane); err != nil {
-		return noop, fmt.Errorf("zoom terminal playback pane: %w", err)
-	}
-	return func() {
-		zoom, err := run("display-message", "-p", "-t", pane, "#{window_zoomed_flag}")
-		if err == nil && strings.TrimSpace(string(zoom)) == "1" {
-			_, _ = run("resize-pane", "-Z", "-t", pane)
-		}
-	}, nil
-}
-
 var attributes = regexp.MustCompile(`\x1b\[\?([0-9;]+)c`)
 var terminalName = regexp.MustCompile(`\x1bP>\|([^\x1b]+)\x1b\\`)
 var cellSizeReply = regexp.MustCompile(`\x1b\[6;(\d+);(\d+)t`)

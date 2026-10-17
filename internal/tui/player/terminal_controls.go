@@ -13,13 +13,15 @@ import (
 // text over that image would be erased on every video frame. A single layout
 // supplies both the ASS overlay and the mouse hit targets.
 type terminalControls struct {
-	hidden      bool
-	focus       int
-	hover       int
-	dragging    bool
-	speed       float64
-	subtitles   bool
-	lastOverlay string
+	hidden        bool
+	focus         int
+	hover         int
+	dragging      bool
+	speed         float64
+	subtitles     bool
+	canFullscreen bool
+	fullscreen    bool
+	lastOverlay   string
 }
 
 type videoRect struct{ x, y, w, h float64 }
@@ -45,6 +47,9 @@ func (c *terminalControls) layout(frame termgraphics.Frame, status PlayerStatus)
 		return videoControlsLayout{}
 	}
 	w := max(720, min(1080, frame.Width))
+	if c.canFullscreen {
+		w = max(w, 840)
+	}
 	h := max(120, int(float64(w)*float64(frame.Height)/float64(frame.Width)))
 	l := videoControlsLayout{w: w, h: h, bar: videoRect{0, float64(h) - 112, float64(w), 112},
 		seek: videoRect{18, float64(h) - 71, float64(w) - 36, 20}}
@@ -75,6 +80,13 @@ func (c *terminalControls) layout(frame termgraphics.Frame, status PlayerStatus)
 		nextSpeed = .5
 	}
 	add(514, 62, fmt.Sprintf("%gx", c.speed), "set_property", "speed", nextSpeed)
+	if c.canFullscreen {
+		label := "Fullscreen"
+		if c.fullscreen {
+			label = "Restore"
+		}
+		add(float64(w)-238, 104, label, "cycle", "fullscreen")
+	}
 	add(float64(w)-126, 108, "Return", "quit")
 	return l
 }
@@ -126,6 +138,9 @@ func (c *terminalControls) overlay(l videoControlsLayout, status PlayerStatus) s
 	}
 	rect(l.bar, "211B15", 24)
 	title := videoLabel(status.Title, (l.w-420)/11) + "   [h: hide]"
+	if c.canFullscreen {
+		title = videoLabel(status.Title, max(0, (l.w-580)/11)) + "   [f: fullscreen, h: hide]"
+	}
 	if c.focus >= 0 {
 		title = "Tab: next control   Enter: activate   Esc: return"
 	}
@@ -168,6 +183,10 @@ func videoMousePosition(m playbackMouse, frame termgraphics.Frame, cellW, cellH 
 func (c *terminalControls) input(input playbackInput, l videoControlsLayout, frame termgraphics.Frame, cellW, cellH float64, status PlayerStatus) []any {
 	if input.Mouse == nil {
 		switch input.Key {
+		case "f":
+			if c.canFullscreen {
+				return []any{"cycle", "fullscreen"}
+			}
 		case "h":
 			c.hidden, c.dragging, c.focus = !c.hidden, false, -1
 			return nil

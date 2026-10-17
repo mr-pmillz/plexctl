@@ -195,7 +195,7 @@ player bar to pause/resume, and `x` or the footer's **Stop** action to stop.
 Press **`v`** on a movie or episode to open the terminal playback menu. Select
 **Kitty graphics**, **Sixel graphics**, **Text**, or **Automatic**. The menu shows
 the detected terminal capabilities. **`ctrl+p`** uses the preference saved in
-Settings. By default playback takes over the full terminal; the library view returns when
+Settings. By default playback takes over the current terminal or tmux pane; the library view returns when
 the video ends or you press **`q`**.
 
 Choose **Ctrl+S → Terminal Video Mode → Overlay** to draw video over the content
@@ -215,6 +215,12 @@ Press **`h`** to hide or show the controls. In Kitty, **Esc** also returns to th
 library and **+ / -** adjust volume. Scrolling over the volume controls adjusts
 volume; scrolling elsewhere seeks.
 
+In tmux, playback starts at the current pane size. Press **`f`** or click the
+**Fullscreen** button to zoom the pane. Press **`f`** again or click **Restore**
+to return to the split layout. Video and controls resize even while paused.
+Stopping playback restores the zoom state from before playback if you used
+the fullscreen control; an already zoomed pane stays zoomed when you return.
+
 During suspended playback, these shortcuts are available in every terminal renderer:
 
 - **`Space`** or **left click on the picture**: Pause or resume.
@@ -222,6 +228,7 @@ During suspended playback, these shortcuts are available in every terminal rende
 - **`9` / `0`**: Decrease or increase volume.
 - **`m`**: Mute or unmute.
 - **`j`**: Cycle subtitle tracks.
+- **`f`**: Toggle fullscreen pane zoom in tmux.
 - **`q`** or **right click**: Stop and return to the library.
 
 The resume prompt, external subtitle tracks, and Plex watch progress also work
@@ -260,9 +267,9 @@ open a video window. The existing `plexctl play 12345 --tct` explicitly selects 
 
 Kitty output uses escape-code transport, so it does not require shared memory
 with the terminal when using SSH. With tmux 3.3+, plexctl temporarily enables
-graphics passthrough for its own pane. During suspended graphics playback it zooms that
-pane so video cannot cover neighboring panes, then restores the layout and
-passthrough setting on exit. Older mpv releases are supported by forwarding
+graphics passthrough for its own pane. Suspended playback fits the current pane;
+fullscreen pane zoom is optional via **f**, with a matching button for Kitty.
+The prior zoom state and passthrough setting are restored on exit. Older mpv releases are supported by forwarding
 graphics and input through plexctl. GNU screen uses TCT in auto mode.
 Rendering speed and image quality depend on terminal size, connection speed,
 and mpv. Installing Kitty alone does not enable graphics in another emulator;
